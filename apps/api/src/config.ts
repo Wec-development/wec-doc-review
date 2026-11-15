@@ -6,6 +6,8 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3000),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().optional(),
+  // Defaults to the repo's fixtures/ folder; containers mount it elsewhere.
+  FIXTURES_DIR: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;
