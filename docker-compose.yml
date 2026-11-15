@@ -1,0 +1,21 @@
+# Step 1: Postgres only. The api and web services are added once their Dockerfiles exist,
+# so that `docker compose up` at the repo root starts the whole system.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d app']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
