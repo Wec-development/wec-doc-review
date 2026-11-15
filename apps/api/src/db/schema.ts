@@ -3,6 +3,7 @@ import {
   JOB_STATUSES,
   OPEN_JOB_STATUSES,
   REVIEW_ACTIONS,
+  type ReviewState,
   VERSION_STATUSES,
 } from '@doc-review/shared';
 import { sql } from 'drizzle-orm';
@@ -15,6 +16,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  pgView,
   text,
   timestamp,
   unique,
@@ -62,7 +64,10 @@ export const documentVersions = pgTable(
       .notNull()
       .references(() => documents.id, RESTRICT),
     versionNo: integer('version_no').notNull(),
+    // Storage key, relative to STORAGE_DIR (seeded fixtures: relative to the repo root).
     filePath: text('file_path').notNull(),
+    // Hex SHA-256 of the PDF bytes; null only for rows seeded before uploads recorded it.
+    fileSha256: text('file_sha256'),
     parsedText: text('parsed_text'),
     status: versionStatus('status').notNull().default('queued'),
     error: text('error'),
@@ -143,7 +148,11 @@ export const reviews = pgTable(
     correctedValue: text('corrected_value'),
     note: text('note'),
     reviewer: text('reviewer').notNull().default('reviewer'),
-    createdAt: createdAt(),
+    // clock_timestamp(), not now(): reviews written in one transaction still get distinct,
+    // ordered times, so "the latest review wins" is deterministic.
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
   },
   (table) => [
     check(
@@ -153,3 +162,22 @@ export const reviews = pgTable(
     index('reviews_value_created_idx').on(table.valueId, table.createdAt),
   ],
 );
+
+/**
+ * The single definition of a value's review state, used by the document list, the detail view
+ * and progress. Created by migration 0002 (drizzle-kit does not manage views marked existing).
+ * - carried_over: the value was carried over from the previous version
+ * - otherwise the latest review decides: approve -> approved, correct -> corrected
+ * - no review: pending
+ */
+export const valueReviewStates = pgView('value_review_states', {
+  valueId: uuid('value_id').notNull(),
+  versionId: uuid('version_id').notNull(),
+  isGap: boolean('is_gap').notNull(),
+  reviewState: text('review_state').$type<ReviewState>().notNull(),
+  reviewAction: reviewAction('review_action'),
+  correctedValue: text('corrected_value'),
+  note: text('note'),
+  reviewer: text('reviewer'),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+}).existing();

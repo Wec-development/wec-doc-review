@@ -12,8 +12,10 @@ coverage/
 .env.*
 !.env.example
 
-# Uploaded PDFs stored at runtime
-storage/
+# Uploaded PDFs stored at runtime (STORAGE_DIR). Anchored so source folders such as
+# apps/api/src/storage/ are not ignored.
+/storage/
+/apps/api/storage/
 
 # Logs
 *.log

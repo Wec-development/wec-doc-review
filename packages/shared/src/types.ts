@@ -3,9 +3,25 @@ import { DOCUMENT_TYPES } from './fields.js';
 
 export const documentTypeSchema = z.enum(DOCUMENT_TYPES);
 
-export const VERSION_STATUSES = ['queued', 'extracting', 'extracted', 'failed'] as const;
+/**
+ * `superseded` is only ever set on an older version whose extraction was cancelled because a
+ * newer version arrived; the current version is always one of the other four.
+ */
+export const VERSION_STATUSES = [
+  'queued',
+  'extracting',
+  'extracted',
+  'failed',
+  'superseded',
+] as const;
 export const versionStatusSchema = z.enum(VERSION_STATUSES);
 export type VersionStatus = z.infer<typeof versionStatusSchema>;
+
+/** Versions still waiting on (or running) an extraction; a newer upload supersedes them. */
+export const IN_FLIGHT_VERSION_STATUSES = [
+  'queued',
+  'extracting',
+] as const satisfies readonly VersionStatus[];
 
 export const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'superseded'] as const;
 export const jobStatusSchema = z.enum(JOB_STATUSES);
@@ -19,7 +35,8 @@ export const reviewActionSchema = z.enum(REVIEW_ACTIONS);
 export type ReviewAction = z.infer<typeof reviewActionSchema>;
 
 export const REVIEW_STATES = ['pending', 'approved', 'corrected', 'carried_over'] as const;
-export type ReviewState = (typeof REVIEW_STATES)[number];
+export const reviewStateSchema = z.enum(REVIEW_STATES);
+export type ReviewState = z.infer<typeof reviewStateSchema>;
 
 const [APPROVE, CORRECT] = REVIEW_ACTIONS;
 
@@ -33,12 +50,3 @@ export const reviewRequestSchema = z.discriminatedUnion('action', [
   }),
 ]);
 export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
-
-/** Response of GET /documents/:id/progress */
-export interface ReviewProgress {
-  pending: number;
-  approved: number;
-  corrected: number;
-  carriedOver: number;
-  gaps: number;
-}
