@@ -25,3 +25,7 @@ pnpm-debug.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Personal AI working notes (not part of the product)
+CLAUDE.local.md
+docs-private/
