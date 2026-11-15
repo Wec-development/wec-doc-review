@@ -1,8 +1,8 @@
-import { TransactionRollbackError } from 'drizzle-orm';
-import { expect } from 'vitest';
-import { loadConfig } from '../config.js';
+import { sql, TransactionRollbackError } from 'drizzle-orm';
+import { expect, inject } from 'vitest';
 import { createDb } from '../db.js';
 import { createDatabase, type Database, type Transaction } from '../db/client.js';
+import { findPgError } from '../db/pg-errors.js';
 import { documents, documentVersions } from '../db/schema.js';
 
 export interface TestDatabase {
@@ -10,10 +10,24 @@ export interface TestDatabase {
   close: () => Promise<void>;
 }
 
-/** Connects to the Postgres in DATABASE_URL (Docker on localhost:5433 by default). */
+/** Connects to the migrated `<db>_test` database prepared by global-setup.ts. */
 export function connectTestDatabase(): TestDatabase {
-  const pool = createDb(loadConfig().DATABASE_URL);
+  const pool = createDb(inject('databaseUrl'));
   return { db: createDatabase(pool), close: () => pool.end() };
+}
+
+/**
+ * Empties every table (committed). Refuses to run anywhere but a `_test` database, so a
+ * misconfigured run can never wipe development data.
+ */
+export async function resetDatabase(db: Database): Promise<void> {
+  const [row] = (await db.execute<{ name: string }>(sql`select current_database() as name`)).rows;
+  if (!row?.name.endsWith('_test')) {
+    throw new Error(`Refusing to truncate non-test database "${row?.name ?? 'unknown'}"`);
+  }
+  await db.execute(
+    sql`truncate table reviews, extracted_values, extraction_jobs, document_versions, documents`,
+  );
 }
 
 /**
@@ -34,27 +48,6 @@ export async function withRollback(
       throw error;
     }
   }
-}
-
-interface PgConstraintError {
-  code: string;
-  constraint?: string;
-}
-
-function isPgConstraintError(error: unknown): error is PgConstraintError {
-  return typeof error === 'object' && error !== null && 'code' in error;
-}
-
-/** Drizzle wraps driver errors; walk the cause chain to the Postgres error. */
-function findPgError(error: unknown): PgConstraintError | undefined {
-  let current: unknown = error;
-  while (current instanceof Error || isPgConstraintError(current)) {
-    if (isPgConstraintError(current)) {
-      return current;
-    }
-    current = current.cause;
-  }
-  return undefined;
 }
 
 /**

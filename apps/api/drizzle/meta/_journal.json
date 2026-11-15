@@ -8,6 +8,20 @@
       "when": 1794761328004,
       "tag": "0000_init_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794762919344,
+      "tag": "0001_version_sha_and_superseded",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794762922752,
+      "tag": "0002_value_review_states",
+      "breakpoints": true
     }
   ]
 }

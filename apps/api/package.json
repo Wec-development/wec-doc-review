@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@doc-review/shared": "workspace:*",
+    "@fastify/cors": "^11.4.3",
+    "@fastify/multipart": "^10.1.8",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "pg": "^8.23.1",
