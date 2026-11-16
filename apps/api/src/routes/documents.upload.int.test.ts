@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { uploadAcceptedSchema } from '@doc-review/shared';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { count, eq } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { extractedValues } from '../db/schema.js';
+import { FakeExtractor } from '../extraction/fake-extractor.js';
+import { LlmExtractor } from '../extraction/llm-extractor.js';
 import { LocalDiskStorage } from '../storage/file-storage.js';
 import { connectTestDatabase, resetDatabase, type TestDatabase } from '../test/db.js';
 import { jobsOf, makeDocumentWithVersion, makeJob, versionsOf } from '../test/factories.js';
@@ -27,7 +31,10 @@ beforeEach(async () => {
   await resetDatabase(testDb.db);
   testApp = await createTestApp(testDb.db);
 });
-afterEach(() => testApp.close());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await testApp.close();
+});
 
 describe('POST /documents', () => {
   it('returns 202 and creates the document, version 1 and one queued job', async () => {
@@ -49,6 +56,32 @@ describe('POST /documents', () => {
     expect(await jobsOf(testDb.db, accepted.versionId)).toEqual([
       expect.objectContaining({ status: 'queued' }),
     ]);
+  });
+
+  it('never extracts inside the request: no extractor or network call, the job is still queued', async () => {
+    // No worker is running. Spies on every extractor and on the network catch any inline work.
+    const llmExtract = vi.spyOn(LlmExtractor.prototype, 'extract');
+    const fakeExtract = vi.spyOn(FakeExtractor.prototype, 'extract');
+    const network = vi.spyOn(globalThis, 'fetch');
+
+    const response = await uploadDocument(testApp.app, { type: 'invoice' });
+
+    expect(response.statusCode).toBe(202);
+    const accepted = uploadAcceptedSchema.parse(response.json());
+    expect(llmExtract).not.toHaveBeenCalled();
+    expect(fakeExtract).not.toHaveBeenCalled();
+    expect(network).not.toHaveBeenCalled();
+    expect(await versionsOf(testDb.db, accepted.documentId)).toEqual([
+      expect.objectContaining({ status: 'queued' }),
+    ]);
+    expect(await jobsOf(testDb.db, accepted.versionId)).toEqual([
+      expect.objectContaining({ status: 'queued' }),
+    ]);
+    const [values] = await testDb.db
+      .select({ n: count() })
+      .from(extractedValues)
+      .where(eq(extractedValues.versionId, accepted.versionId));
+    expect(values?.n).toBe(0);
   });
 
   it('writes the file under <documentId>/v1-<sha256>.pdf and records the sha256', async () => {

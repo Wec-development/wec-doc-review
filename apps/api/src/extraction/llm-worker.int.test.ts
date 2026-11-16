@@ -1,22 +1,29 @@
 import { documentDetailSchema, uploadAcceptedSchema } from '@doc-review/shared';
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { documentVersions, extractedValues, extractionJobs } from '../db/schema.js';
 import { readFixtureManifest, seedFixtures } from '../db/seed.js';
 import { LocalDiskStorage } from '../storage/file-storage.js';
 import { connectTestDatabase, resetDatabase, type TestDatabase } from '../test/db.js';
-import { createTestApp, uploadDocument } from '../test/http.js';
+import { createTestApp, type TestApp, uploadDocument, uploadVersion } from '../test/http.js';
 import {
   blankPdf,
+  buildRecording,
   FIXTURES_DIR,
   jsonResponse,
   loadRecording,
+  overrideFields,
+  promptOf,
   recordedLlmExtractor,
   replayFetch,
+  respondByDocumentText,
   respondByDocumentType,
   TEST_API_KEY,
   TEST_MODEL,
+  uploadsExtractor,
 } from '../test/llm.js';
+import { drain } from '../test/worker.js';
 import { createLogger } from '../worker/logger.js';
 import { Worker } from '../worker/worker.js';
 import type { Extractor } from './extractor.js';
@@ -25,6 +32,7 @@ import { AnthropicLlmClient } from './llm/anthropic-client.js';
 import { NO_TEXT_REASON, parsePdfFile } from './pdf/parse-pdf.js';
 import { PROMPT_VERSION } from './prompt/build-prompt.js';
 import { createFileResolver } from './resolve-file.js';
+import { GAP_REASONS } from './validate/verify-fields.js';
 
 let testDb: TestDatabase;
 
@@ -254,6 +262,114 @@ describe('LLM extraction through the worker', () => {
       lastError: 'Model output was not valid JSON',
       rawResponse: expect.objectContaining({ id: 'msg_rec_invoice_001' }),
       usage: { inputTokens: 912, outputTokens: 486 },
+    });
+  });
+});
+
+describe('evidence belongs to its own version (R5, R7, R8)', () => {
+  const INVOICE_V1 = readFileSync(`${FIXTURES_DIR}documents/invoice-001.pdf`);
+  const INVOICE_V2 = readFileSync(`${FIXTURES_DIR}documents/invoice-001.v2.pdf`);
+  const REVISED = 'INVOICE (REVISED)';
+  let testApp: TestApp;
+
+  beforeEach(async () => {
+    testApp = await createTestApp(testDb.db);
+  });
+  afterEach(() => testApp.close());
+
+  /** Uploads invoice v1 and v2 through the API and extracts each with the given v2 reply. */
+  async function invoiceWithTwoVersions(v2Reply: unknown) {
+    const respondV1 = respondByDocumentText([['MERIDIAN OFFICE SUPPLIES LLC', 'invoice-001']]);
+    const { extractor } = uploadsExtractor(testApp.storageDir, (call) =>
+      promptOf(call).includes(REVISED) ? jsonResponse(200, v2Reply) : respondV1(call),
+    );
+    const upload = await uploadDocument(testApp.app, {
+      type: 'invoice',
+      file: { contents: INVOICE_V1 },
+    });
+    const { documentId } = uploadAcceptedSchema.parse(upload.json());
+    expect(await drain(worker(extractor))).toEqual(['done']);
+    expect(
+      (await uploadVersion(testApp.app, documentId, { contents: INVOICE_V2 })).statusCode,
+    ).toBe(202);
+    expect(await drain(worker(extractor))).toEqual(['done']);
+    const detail = async (versionNo: number) =>
+      documentDetailSchema.parse(
+        (await testApp.app.inject(`/documents/${documentId}?version=${versionNo}`)).json(),
+      );
+    return { v1: await detail(1), v2: await detail(2) };
+  }
+
+  it('serves each version with offsets that slice that version’s own text, after v2 exists', async () => {
+    const { v1, v2 } = await invoiceWithTwoVersions(loadRecording('invoice-001.v2'));
+
+    expect(v1.version.parsedText).not.toBe(v2.version.parsedText);
+    for (const detail of [v1, v2]) {
+      const text = detail.version.parsedText ?? '';
+      const quoted = detail.values.filter((v) => v.evidence !== null);
+      expect(quoted).toHaveLength(5);
+      for (const value of quoted) {
+        expect(text.slice(value.evidenceStart ?? 0, value.evidenceEnd ?? 0)).toBe(value.evidence);
+      }
+    }
+    expect(v1.values.find((v) => v.field === 'due_date')?.value).toBe('2025-10-14');
+    expect(v2.values.find((v) => v.field === 'due_date')?.value).toBe('2025-11-13');
+  });
+
+  it('turns a v2 value quoted from v1’s text into a gap, never keeping the value', async () => {
+    const v2QuotingV1 = buildRecording('invoice-001.v2', {
+      id: 'msg_rec_invoice_v2_quotes_v1',
+      editFields: overrideFields({
+        due_date: { value: '2025-10-14', evidence: 'Due Date: 2025-10-14' },
+      }),
+    });
+
+    const { v1, v2 } = await invoiceWithTwoVersions(v2QuotingV1);
+
+    expect(v1.version.parsedText).toContain('Due Date: 2025-10-14');
+    expect(v2.values.find((v) => v.field === 'due_date')).toMatchObject({
+      value: null,
+      evidence: null,
+      gapKind: 'evidence_not_verified',
+      gapReason: GAP_REASONS.evidenceNotFound,
+      reviewState: 'pending',
+    });
+    expect(v2.values.filter((v) => v.value !== null)).toHaveLength(4);
+  });
+
+  it('keeps the prompt and raw response on the job when the model refuses (permanent failure)', async () => {
+    const refusal = buildRecording('invoice-001', {
+      id: 'msg_rec_invoice_refusal',
+      refusal: { category: 'cyber' },
+    });
+    const { extractor } = uploadsExtractor(testApp.storageDir, () => jsonResponse(200, refusal));
+    const upload = await uploadDocument(testApp.app, {
+      type: 'invoice',
+      file: { contents: INVOICE_V1 },
+    });
+    const { versionId } = uploadAcceptedSchema.parse(upload.json());
+
+    expect(await drain(worker(extractor))).toEqual(['failed']);
+
+    expect(await jobOf(versionId)).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      promptVersion: PROMPT_VERSION,
+      model: TEST_MODEL,
+      prompt: expect.stringContaining('MERIDIAN OFFICE SUPPLIES LLC'),
+      rawResponse: expect.objectContaining({
+        id: 'msg_rec_invoice_refusal',
+        stop_reason: 'refusal',
+      }),
+      lastError: 'The model declined to extract this document (cyber)',
+    });
+    const [version] = await testDb.db
+      .select()
+      .from(documentVersions)
+      .where(eq(documentVersions.id, versionId));
+    expect(version).toMatchObject({
+      status: 'failed',
+      error: 'Extraction failed: The model declined to extract this document (cyber)',
     });
   });
 });

@@ -8,7 +8,7 @@ import {
   makeValue,
 } from '../test/factories.js';
 import { formatValue } from './format-value.js';
-import { groupValues } from './group-values.js';
+import { countAwaitingReview, groupValues } from './group-values.js';
 import { highlightSegments, lineOfOffset } from './highlight.js';
 import { isInFlight, reviewMeta, statusMeta } from './status.js';
 import { listSubtitle, listTotals, progressLine } from './summary.js';
@@ -131,6 +131,33 @@ describe('statusMeta and reviewMeta', () => {
     expect(
       reviewMeta(makeValue({ reviewState: 'carried_over', carriedAction: 'approved' })).label,
     ).toBe('Carried over · approved');
+    expect(reviewMeta(makeValue({ reviewState: 'approved' }))).toEqual({
+      label: 'Approved',
+      tone: 'approved',
+    });
+    expect(reviewMeta(makeGap({ reviewState: 'approved' }))).toEqual({
+      label: 'Gap confirmed',
+      tone: 'approved',
+    });
+    expect(reviewMeta(makeValue({ reviewState: 'corrected' }))).toEqual({
+      label: 'Corrected',
+      tone: 'corrected',
+    });
+  });
+});
+
+describe('countAwaitingReview', () => {
+  it('counts pending values and pending gaps, not reviewed or carried ones', () => {
+    expect(countAwaitingReview(invoiceV2Detail().values)).toBe(2);
+    expect(
+      countAwaitingReview([
+        makeValue(),
+        makeGap(),
+        makeGap({ reviewState: 'approved' }),
+        makeValue({ reviewState: 'corrected' }),
+        makeValue({ reviewState: 'carried_over' }),
+      ]),
+    ).toBe(2);
   });
 });
 

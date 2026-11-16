@@ -25,20 +25,22 @@ _TODO: once the api and web services are in `docker-compose.yml`, `docker compos
 
 ## Scripts
 
-| Command                                     | What it does                                                                                                                                   |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                                  | Build shared types, run the API, the worker and the web app in dev                                                                             |
-| `pnpm --filter @doc-review/api worker:dev`  | Run only the extraction worker (watch mode); `worker` runs the built one                                                                       |
-| `pnpm build`                                | Build every package                                                                                                                            |
-| `pnpm typecheck`                            | Type-check every package                                                                                                                       |
-| `pnpm lint`                                 | ESLint across the repo                                                                                                                         |
-| `pnpm format`                               | Format with Prettier                                                                                                                           |
-| `pnpm test`                                 | Run all tests. API tests need Postgres up; they create and migrate a separate `app_test` database and never touch `app`. No LLM is ever called |
-| `pnpm --filter @doc-review/api test:live`   | Call the real LLM on `invoice-001.pdf` (needs `LLM_API_KEY` and `LLM_MODEL`; costs a few cents; never in CI)                                   |
-| `pnpm db:up` / `down`                       | Start / stop Postgres                                                                                                                          |
-| `pnpm db:migrate`                           | Apply SQL migrations from `apps/api/drizzle/`                                                                                                  |
-| `pnpm db:seed`                              | Seed version 1 of each fixture document plus a queued job                                                                                      |
-| `pnpm --filter @doc-review/api db:generate` | Generate a new migration after editing `apps/api/src/db/schema.ts`                                                                             |
+| Command                                            | What it does                                                                                                                                                            |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                         | Build shared types, run the API, the worker and the web app in dev                                                                                                      |
+| `pnpm --filter @doc-review/api worker:dev`         | Run only the extraction worker (watch mode); `worker` runs the built one                                                                                                |
+| `pnpm build`                                       | Build every package                                                                                                                                                     |
+| `pnpm typecheck`                                   | Type-check every package                                                                                                                                                |
+| `pnpm lint`                                        | ESLint across the repo                                                                                                                                                  |
+| `pnpm format`                                      | Format with Prettier                                                                                                                                                    |
+| `pnpm test`                                        | Run all tests (unit, integration, e2e). API tests need Postgres up; they create and migrate a separate `app_test` database and never touch `app`. No LLM is ever called |
+| `pnpm test:unit` / `test:integration` / `test:e2e` | Run one layer (see [Tests](#tests))                                                                                                                                     |
+| `pnpm test:coverage`                               | All tests with coverage; fails if a critical module drops below 90% lines or branches                                                                                   |
+| `pnpm --filter @doc-review/api test:live`          | Call the real LLM on `invoice-001.pdf` (needs `LLM_API_KEY` and `LLM_MODEL`; costs a few cents; never in CI)                                                            |
+| `pnpm db:up` / `down`                              | Start / stop Postgres                                                                                                                                                   |
+| `pnpm db:migrate`                                  | Apply SQL migrations from `apps/api/drizzle/`                                                                                                                           |
+| `pnpm db:seed`                                     | Seed version 1 of each fixture document plus a queued job                                                                                                               |
+| `pnpm --filter @doc-review/api db:generate`        | Generate a new migration after editing `apps/api/src/db/schema.ts`                                                                                                      |
 
 ## Repository layout
 
@@ -385,6 +387,44 @@ React + Vite in [`apps/web`](apps/web/), styled with CSS Modules and the design 
 - the layout stacks into one column under 900 px, and the wide table and the document text scroll sideways inside their own boxes.
 
 **API additions for the UI.** `GET /documents/:id` now returns the selected version's `parsedText`, which the text panel and the "line N" labels need. `GET /documents` returns each document's `error`, so the table can say why a document failed.
+
+## Tests
+
+Three layers, each a Vitest project, so every layer can run on its own:
+
+| Layer       | Where                                          | What it uses                                                                                     | Command                 |
+| ----------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------- |
+| unit        | `*.test.ts` next to the code, in every package | Pure functions; the web app's components in jsdom with a mocked API client                       | `pnpm test:unit`        |
+| integration | `apps/api/src/**/*.int.test.ts`                | Real Postgres (`app_test`), truncated before each test; the API through `app.inject`; the worker | `pnpm test:integration` |
+| e2e         | `apps/api/test/e2e/*.e2e.test.ts`              | HTTP in, a real background worker, real PDF parsing, the real SDK client with recorded replies   | `pnpm test:e2e`         |
+
+`pnpm test` runs all three. Integration and e2e share one database, so their files run one at a time, and e2e only starts once integration has finished. CI runs `pnpm test:coverage` and uploads each package's `coverage-summary.json` as the `coverage-summary` artifact.
+
+**The LLM is never called.** Replies recorded from the real model live in `apps/api/test/recordings/`, and an injected `fetch` replays them into the real Anthropic SDK client. Variants (a made-up quote, a refusal, a v2 reply that quotes v1) are built from those recordings in code with `buildRecording`, not hand-copied JSON. To refresh the recordings from the real model: `LLM_RECORD=1 pnpm --filter @doc-review/api test:live`.
+
+**What the client will test, and where it is proven** (e2e unless noted):
+
+| Behaviour                                                                   | Test                                                                                                         |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Upload returns at once; nothing is extracted in the request                 | `documents.upload.int.test.ts` › never extracts inside the request (spies on every extractor and on `fetch`) |
+| Seed → all three extracted; median income is a gap with a reason            | scenario 1                                                                                                   |
+| Invoice v1 reviewed → v2: exactly 2 pending, 3 carried over; v1 unchanged   | scenario 2                                                                                                   |
+| A quote the model made up becomes a gap                                     | scenario 3; `verify-fields.test.ts`; `golden.test.ts`                                                        |
+| An LLM error fails the version with its reason; retry works                 | scenario 4                                                                                                   |
+| A crashed worker's job is finished by another worker                        | scenario 5 (the worker runs as a real process and is `SIGKILL`ed); `recovery.int.test.ts`                    |
+| A stopped worker hands its job back                                         | scenario 5 (`SIGTERM`)                                                                                       |
+| A new version mid-extraction supersedes the running one                     | scenario 6                                                                                                   |
+| Non-PDF uploads are rejected                                                | scenario 7                                                                                                   |
+| No duplicate values under retries, concurrent retries or concurrent uploads | `recovery.int.test.ts`, `worker.int.test.ts`, `carry-over.int.test.ts`                                       |
+| Evidence offsets of each version point into that version's text             | `llm-worker.int.test.ts` › serves each version with offsets that slice that version's own text               |
+
+**Crash scenario.** The crashing worker is the real entry point (`src/worker/index.ts`) started as a child process with the fake extractor and a long delay, so it is always mid-extraction when killed. After `SIGKILL`, the test moves the job's lease into the past with database time, not by sleeping, and a second worker completes it with exactly one value per field and `attempts = 2`.
+
+**Deterministic.** Waits are bounded polls (`waitFor`, 10 s max) on states the API or database reports, never fixed sleeps. Lease expiry uses the database clock. No test is retried to hide a flake. The suite passed 5 runs in a row and a run with `--sequence.shuffle`.
+
+**Coverage is gated only where it matters:** ≥ 90% lines and branches on evidence verification (`verify-fields`, `value-support`, `match-text`), `compareVersions`, job claiming and fencing (`jobs.repository`), and the web app's review-state helpers (`lib/status`, `lib/group-values`). Review-state derivation itself is the `value_review_states` SQL view, covered through the API tests. Everything else is reported, not gated.
+
+**Not covered:** no real-browser tests (components run in jsdom), and no live LLM in CI (`test:live` is manual).
 
 ## What I cut and what's next
 
