@@ -1,0 +1,118 @@
+/* Design tokens (ui-design-tokens skill) plus a few shades taken from the approved mockups. */
+:root {
+  --bg: #f6f6f4;
+  --surface: #ffffff;
+  --surface-sunken: #fafaf8;
+  --border: #e3e3e0;
+  --border-subtle: #efefec;
+  --border-strong: #c9c9c4;
+  --text: #1a1a1a;
+  --text-muted: #5c5c5c;
+  --text-soft: #3d3d3d;
+  --accent: #2347a8;
+  --accent-hover: #16306f;
+
+  --pending-bg: #fff1d6;
+  --pending-text: #8a4b00;
+  --pending-border: #e8c98a;
+  --pending-banner-bg: #fff6e5;
+  --pending-banner-border: #f1d9a8;
+  --pending-banner-text: #5a3300;
+  --approved-bg: #e3f4e8;
+  --approved-text: #1e6b3a;
+  --corrected-bg: #e4ecfb;
+  --corrected-text: #234a9e;
+  --corrected-border: #a9bdeb;
+  --carried-bg: #eeeeec;
+  --carried-text: #3d3d3d;
+  --gap-bg: #fde7e7;
+  --gap-text: #a12828;
+  --gap-border: #edb8b8;
+  --highlight: #ffe3a3;
+  --highlight-neutral: #e2e2de;
+  --bar-pending: #e8a33d;
+  --bar-carried: #8c8c88;
+  --bar-approved: #1e6b3a;
+  --bar-corrected: #234a9e;
+  --track: #efefec;
+  --switcher-bg: #ebebe8;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --target: 44px;
+
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

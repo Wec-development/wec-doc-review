@@ -1,0 +1,83 @@
+.empty {
+  max-width: 560px;
+  margin: var(--space-6) auto;
+  padding: 48px var(--space-6);
+  text-align: center;
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.emptyIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-card);
+  background: var(--carried-bg);
+  color: var(--text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emptyTitle {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 20px;
+}
+
+.emptyText {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+}
+
+.error {
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--gap-border);
+  border-radius: var(--radius-card);
+}
+
+.errorTitle {
+  margin: 0 0 var(--space-2);
+  font-size: 18px;
+  color: var(--gap-text);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skeletonCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.barShort,
+.barLong,
+.barMid {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--track);
+}
+
+.barShort {
+  width: 30%;
+}
+
+.barLong {
+  width: 85%;
+  height: 20px;
+}
+
+.barMid {
+  width: 60%;
+}

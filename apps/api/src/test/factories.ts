@@ -42,7 +42,13 @@ export async function makeDocument(
 export async function makeVersion(
   db: Executor,
   documentId: string,
-  input: { versionNo?: number; status?: VersionStatus; sha256?: string; error?: string } = {},
+  input: {
+    versionNo?: number;
+    status?: VersionStatus;
+    sha256?: string;
+    error?: string;
+    parsedText?: string;
+  } = {},
 ): Promise<string> {
   const versionNo = input.versionNo ?? 1;
   const row = first(
@@ -55,6 +61,7 @@ export async function makeVersion(
         filePath: `${documentId}/v${versionNo}.pdf`,
         fileSha256: input.sha256 ?? null,
         error: input.error ?? null,
+        parsedText: input.parsedText ?? null,
       })
       .returning({ id: documentVersions.id }),
     'a version',

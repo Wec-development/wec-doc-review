@@ -98,6 +98,18 @@ describe('GET /documents', () => {
     expect(newer.documentId).not.toBe(older.documentId);
   });
 
+  it('includes the error of the current version, e.g. why extraction failed', async () => {
+    const documentId = await makeDocument(testDb.db);
+    await makeVersion(testDb.db, documentId, {
+      status: 'failed',
+      error: 'Extraction failed: timeout',
+    });
+
+    const { documents } = documentListSchema.parse((await testApp.app.inject('/documents')).json());
+
+    expect(documents[0]).toMatchObject({ status: 'failed', error: 'Extraction failed: timeout' });
+  });
+
   it('returns zero progress for a document whose version has no values yet', async () => {
     await makeDocumentWithVersion(testDb.db, { status: 'queued' });
     const { documents } = documentListSchema.parse((await testApp.app.inject('/documents')).json());
@@ -113,6 +125,31 @@ describe('GET /documents', () => {
 });
 
 describe('GET /documents/:id', () => {
+  it('returns the parsed text of the selected version only', async () => {
+    const documentId = await makeDocument(testDb.db);
+    await makeVersion(testDb.db, documentId, {
+      versionNo: 1,
+      status: 'extracted',
+      parsedText: 'v1 text',
+    });
+    await makeVersion(testDb.db, documentId, {
+      versionNo: 2,
+      status: 'extracted',
+      parsedText: 'v2 text',
+    });
+
+    const current = documentDetailSchema.parse(
+      (await testApp.app.inject(`/documents/${documentId}`)).json(),
+    );
+    const older = documentDetailSchema.parse(
+      (await testApp.app.inject(`/documents/${documentId}?version=1`)).json(),
+    );
+
+    expect(current.version.parsedText).toBe('v2 text');
+    expect(older.version.parsedText).toBe('v1 text');
+    expect(JSON.stringify(current.versions)).not.toContain('v1 text');
+  });
+
   it('returns the current version with values in field-definition order', async () => {
     const { documentId } = await makeReviewedInvoice();
 

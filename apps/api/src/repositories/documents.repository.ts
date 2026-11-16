@@ -93,6 +93,15 @@ export async function findLatestVersion(
   return row;
 }
 
+/** The version's parsed text; read separately so version lists never load every text. */
+export async function findVersionText(db: Executor, versionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ parsedText: documentVersions.parsedText })
+    .from(documentVersions)
+    .where(eq(documentVersions.id, versionId));
+  return row?.parsedText ?? null;
+}
+
 export async function listVersions(db: Executor, documentId: string): Promise<VersionRow[]> {
   return db
     .select(versionColumns)

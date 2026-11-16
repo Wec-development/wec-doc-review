@@ -52,6 +52,7 @@ export interface DocumentSummaryView {
   title: string;
   currentVersionNo: number;
   status: VersionStatus;
+  error: string | null;
   progress: ReviewProgress;
   updatedAt: Date;
 }
@@ -99,6 +100,7 @@ export async function listDocumentSummaries(db: Executor): Promise<DocumentSumma
       title: documents.title,
       currentVersionNo: documentVersions.versionNo,
       status: documentVersions.status,
+      error: documentVersions.error,
       updatedAt: updatedAt.mapWith(documentVersions.updatedAt),
       ...progressColumns,
     })
