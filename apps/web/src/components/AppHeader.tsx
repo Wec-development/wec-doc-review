@@ -24,13 +24,19 @@ export function AppHeader() {
           </span>
           Review Desk
         </NavLink>
-        <nav aria-label="Main">
+        <nav aria-label="Main" className={styles.nav}>
           <NavLink
             to="/"
             end
             className={({ isActive }) => (isActive ? styles.active : styles.link)}
           >
             Documents
+          </NavLink>
+          <NavLink
+            to="/welcome"
+            className={({ isActive }) => (isActive ? styles.active : styles.link)}
+          >
+            How it works
           </NavLink>
         </nav>
       </div>
