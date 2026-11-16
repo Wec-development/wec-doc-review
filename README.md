@@ -9,7 +9,7 @@ PDF documents go in, an LLM extracts structured values with verbatim evidence, a
 Requirements: Node 22 (`nvm use`), pnpm 10 (`corepack enable`), Docker Desktop.
 
 ```sh
-cp .env.example .env        # add your LLM_API_KEY
+cp .env.example .env        # no secrets needed: the LLM is configured in the app
 pnpm install
 pnpm db:up                  # Postgres in Docker (host port 5433)
 pnpm db:migrate             # create the schema
@@ -17,7 +17,7 @@ pnpm db:seed                # insert version 1 of the 3 fixture documents (safe 
 pnpm dev                    # API on :3000, extraction worker, web on :5173
 ```
 
-With `LLM_API_KEY` and `LLM_MODEL` set in `.env`, the worker extracts with the LLM (see [Extraction](#extraction)). Without a key it uses a deterministic fake extractor, so the app still runs and seeded documents move from `queued` to `extracted` within a couple of seconds.
+**Then open Settings first** (<http://localhost:5173/settings>): pick Claude (Anthropic) or OpenAI, paste an API key, click **Test connection**, keep the pre-selected low-cost model and **Save** (see [LLM settings](#llm-settings)). Until then the seeded documents stay `queued` and the app shows "Extraction is paused — configure an LLM in Settings". For a demo without any key, set `EXTRACTOR=fake` in `.env`: a deterministic fake extractor then fills in values within a couple of seconds.
 
 Open the review UI at <http://localhost:5173> (walkthrough in [Review UI](#review-ui)). Check the API: <http://localhost:3000/health>
 
@@ -36,7 +36,8 @@ _TODO: once the api and web services are in `docker-compose.yml`, `docker compos
 | `pnpm test`                                        | Run all tests (unit, integration, e2e). API tests need Postgres up; they create and migrate a separate `app_test` database and never touch `app`. No LLM is ever called |
 | `pnpm test:unit` / `test:integration` / `test:e2e` | Run one layer (see [Tests](#tests))                                                                                                                                     |
 | `pnpm test:coverage`                               | All tests with coverage; fails if a critical module drops below 90% lines or branches                                                                                   |
-| `pnpm --filter @doc-review/api test:live`          | Call the real LLM on `invoice-001.pdf` (needs `LLM_API_KEY` and `LLM_MODEL`; costs a few cents; never in CI)                                                            |
+| `pnpm --filter @doc-review/api test:live`          | Call the real LLM on `invoice-001.pdf` (needs `LLM_LIVE_TEST_PROVIDER`, `LLM_LIVE_TEST_MODEL`, `LLM_LIVE_TEST_KEY` in your shell; costs a few cents; never in CI)       |
+| `pnpm --filter @doc-review/api llm:models`         | List the models a key can use for extraction and the default Settings would pick (needs `LLM_LIVE_TEST_PROVIDER`, `LLM_LIVE_TEST_KEY`; free; prints IDs only)           |
 | `pnpm db:up` / `down`                              | Start / stop Postgres                                                                                                                                                   |
 | `pnpm db:migrate`                                  | Apply SQL migrations from `apps/api/drizzle/`                                                                                                                           |
 | `pnpm db:seed`                                     | Seed version 1 of each fixture document plus a queued job                                                                                                               |
@@ -66,13 +67,14 @@ documents 1─* document_versions 1─* extraction_jobs
                               └─ previous_value_id → the same field's value on the previous version
 ```
 
-| Table               | One row is…                    | Key columns                                                                                                                                                                                                |
-| ------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                                                                                                                                              |
-| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`, `baseline_version_id` (the version it was compared against)                                                                    |
-| `extraction_jobs`   | one extraction job (the queue) | `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `heartbeat_at`, `started_at`, `finished_at`, `last_error`, `prompt`, `prompt_version`, `model`, `raw_response`, `usage`, `llm_duration_ms` |
-| `extracted_values`  | one field of one version       | `field`, `value`, `normalized_value`, `evidence`, `evidence_start`, `evidence_end`, `gap_reason`, `gap_kind`, `comparison`, `comparison_reason`, `previous_value_id`, `carried_over`                       |
-| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`, `carried_from_review_id` (set on a review copied from the previous version)                                                                               |
+| Table               | One row is…                    | Key columns                                                                                                                                                                                                            |
+| ------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                                                                                                                                                          |
+| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`, `baseline_version_id` (the version it was compared against)                                                                                |
+| `extraction_jobs`   | one extraction job (the queue) | `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `heartbeat_at`, `started_at`, `finished_at`, `last_error`, `prompt`, `prompt_version`, `provider`, `model`, `raw_response`, `usage`, `llm_duration_ms` |
+| `extracted_values`  | one field of one version       | `field`, `value`, `normalized_value`, `evidence`, `evidence_start`, `evidence_end`, `gap_reason`, `gap_kind`, `comparison`, `comparison_reason`, `previous_value_id`, `carried_over`                                   |
+| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`, `carried_from_review_id` (set on a review copied from the previous version)                                                                                           |
+| `llm_settings`      | the LLM in use (one row only)  | `provider`, `model`, `api_key_ciphertext`, `api_key_iv`, `api_key_tag`, `key_version`, `key_hint` (last 4 characters), `last_verified_at` — see [LLM settings](#llm-settings)                                          |
 
 **Versions → values → reviews.** Every upload is a new version row, and values and reviews hang off that specific version. Nothing is updated in place or deleted: every foreign key is `ON DELETE RESTRICT`. Each version keeps its own `parsed_text`, so evidence for version N is always checked against version N's text, even after N+1 exists.
 
@@ -145,6 +147,40 @@ curl -s -H 'content-type: application/json' -d '{"action":"correct","value":"202
 **A new version while the previous one is still extracting: newest wins.** `POST /documents/:id/versions` locks the document row (`SELECT … FOR UPDATE`), so concurrent uploads get consecutive version numbers. In the same transaction it marks every open job of the older versions `superseded` (and those versions `superseded`), then inserts version N+1 with a fresh `queued` job. Nothing is deleted, and older versions stay queryable with `?version=N`. Reviews take a shared lock on the same row, so a review can't land on a version that is being replaced.
 
 **Retry.** `POST /documents/:id/retry` only works when the current version is `failed`. It sets the version back to `queued` and adds a new job. The partial unique index guarantees there is never more than one open job per version.
+
+## LLM settings
+
+The provider, model and API key are configured in the app, not in environment files: **Settings** (`/settings`, linked in the header).
+
+**First run.**
+
+1. Open Settings and choose **Claude (Anthropic)** or **OpenAI**.
+2. Paste an API key and click **Test connection**. The API calls the provider's list-models endpoint with that key. This call is free: no completion is run. Success means the key is valid, and the response lists the models the key can use.
+3. Keep the pre-selected model ("Recommended — low cost") or pick a more accurate one.
+4. Click **Save settings**. Queued documents start extracting on the worker's next poll; no restart is needed.
+
+**Model recommendation.**
+
+- **Filter.** Only text models that work with the extraction request are offered: structured output and, for Anthropic, `effort`, read from the capability flags Anthropic's models API reports. Deprecated models are excluded, and so are OpenAI models that are not current chat models (embeddings, audio, images, realtime, moderation).
+- **Curated defaults.** A short list in [`modelCatalog.ts`](apps/api/src/llm/modelCatalog.ts):
+  - Anthropic: `claude-haiku-5-5` (recommended), then `claude-sonnet-5-5` for higher accuracy.
+  - OpenAI: `gpt-6-luna` (recommended), then `gpt-6.1-terra` and `gpt-6.1-sol`.
+- **Pre-selection.** Settings pre-selects the first curated model the key actually has, otherwise the cheapest available match.
+- **Server-side check.** Saving re-runs the check server-side, and a model outside the key's list is rejected (400). The browser's earlier test is never trusted.
+
+**How the key is protected.**
+
+- **Encryption at rest.** The key is encrypted with AES-256-GCM (Node's `crypto`, a random 12-byte IV per save). The ciphertext, IV, auth tag and `key_version` are stored in `llm_settings`. A tampered value fails to decrypt.
+- **The encryption key is never in the database.** It comes from `APP_ENCRYPTION_KEY` (32 bytes, base64). If that's unset, a key file at `SECRETS_DIR/encryption.key` is generated on first start with mode 0600; it's git-ignored, and Docker keeps it on the `secrets` volume. The API and worker fail at startup with a clear message if neither can be read or created.
+- **Decrypted only when needed.** The worker decrypts the key per job, at the moment of the call, and does not keep it.
+- **Never returned or logged.** The API never returns the key: `GET /settings/llm` shows only `keyHint` (the last 4 characters). Request logs never include bodies, and the logger also redacts `apiKey` and auth headers.
+- **Rate-limited test.** `POST /settings/llm/test` is limited to 10 requests per minute per client.
+
+**Without settings.** The worker does not claim jobs, so documents stay `queued` without using up retry attempts, and the UI shows a banner. A revoked key fails the version with "LLM authentication failed — update the API key in Settings", and it can be retried after the key is replaced.
+
+**Known limitation: no authentication.** The app has no sign-in (out of scope for the assignment), so anyone who can reach it can read the masked settings and replace the key. A production deployment needs authentication and an admin role on these endpoints.
+
+**Key rotation (future work).** `key_version` is already stored with every ciphertext. Rotation would add the new encryption key under the next version, re-encrypt the row, and then retire the old key. If the encryption key is lost or changed today, the saved API key can't be read: re-enter it in Settings.
 
 ## How extraction is coordinated
 
@@ -225,9 +261,9 @@ stored PDF ──pdfjs-dist──▶ raw text ──▶ prompt (field definition
    │                    values + gaps ◀── normalise ◀── value supported? ◀── evidence in THIS text? ◀── Zod-parse
 ```
 
-The worker runs this ([`apps/api/src/extraction/`](apps/api/src/extraction/)) with `EXTRACTOR=llm`. That's the default whenever `LLM_API_KEY` is set; it also needs `LLM_MODEL`. Each step is a small pure module with its own tests.
+The worker runs this ([`apps/api/src/extraction/`](apps/api/src/extraction/)) with `EXTRACTOR=llm`, the default. The provider, model and API key come from [LLM settings](#llm-settings), read from Postgres for every job. Each step is a small pure module with its own tests.
 
-**Two providers: Anthropic and OpenAI.** `LLM_PROVIDER` picks which API gets the key. When it's empty, it's inferred from `LLM_MODEL`: `claude-*` means Anthropic; `gpt-*`, `o1`/`o3`/`o4…` and `chatgpt-*` mean OpenAI. For any other model name the worker refuses to start and asks for `LLM_PROVIDER`, so a mismatch shows up once at startup, not as one failed job per document. Both clients ([`anthropic-client.ts`](apps/api/src/extraction/llm/anthropic-client.ts), [`openai-client.ts`](apps/api/src/extraction/llm/openai-client.ts)) implement the same `LlmClient` interface, with the same guarantees:
+**Two providers: Anthropic and OpenAI.** The provider saved in Settings picks which client handles the job; the provider and model are stored on every job row. Both clients ([`anthropic-client.ts`](apps/api/src/extraction/llm/anthropic-client.ts), [`openai-client.ts`](apps/api/src/extraction/llm/openai-client.ts)) implement the same `LlmClient` interface, with the same guarantees:
 
 - one request per attempt;
 - the same retryable/permanent error mapping;
@@ -236,7 +272,7 @@ The worker runs this ([`apps/api/src/extraction/`](apps/api/src/extraction/)) wi
 
 Everything after the call (verification, normalisation, carry-over) doesn't depend on the provider.
 
-> **"LLM authentication failed — check LLM_API_KEY"** means the provider rejected the key. Most often the key is from a different provider than `LLM_MODEL`/`LLM_PROVIDER` (for example an OpenAI key sent to Anthropic). After editing `.env`, restart `pnpm dev` so the worker reads it.
+> **"LLM authentication failed — update the API key in Settings"** means the provider rejected the saved key (revoked or expired). The version is `failed`; replace the key in Settings, then click Retry. No restart is needed: the worker reads the settings for every job.
 
 **Parsed text is stored per version, exactly as parsed.** [pdfjs-dist](https://github.com/mozilla/pdf.js) (Mozilla's PDF.js, with no runtime dependencies) turns the PDF into text, keeping a line break wherever PDF.js reports one. That raw text is stored on `document_versions.parsed_text` and never normalised. Evidence for version N is always verified against version N's own text, even after N+1 exists. The review UI can highlight a passage using the stored offsets. Failures are permanent:
 
@@ -288,7 +324,7 @@ Anything ambiguous (two different numbers, an impossible date, a European `1.200
 **Errors** map onto the job queue's retry policy:
 
 - **Retryable:** timeouts, 429, 5xx, network errors, malformed or truncated output.
-- **Permanent:** unreadable, empty or oversized PDFs; 4xx such as `LLM authentication failed — check LLM_API_KEY`; model refusals.
+- **Permanent:** unreadable, empty or oversized PDFs; 4xx such as `LLM authentication failed — update the API key in Settings`; model refusals.
 
 Every attempt that reaches the model stores `prompt`, `prompt_version`, `model`, `raw_response`, `usage` (input/output tokens) and `llm_duration_ms` on the job, on success and on failure. The API key comes only from the validated environment, and is never logged, stored or returned.
 
@@ -297,9 +333,13 @@ Every attempt that reaches the model stores `prompt`, `prompt_version`, `model`,
 **Tests never call a model.** Golden tests run the real parser and the real SDK client against recorded model replies in `apps/api/test/recordings/`, through an injected `fetch`. That includes one recording with a fabricated quote, which must become a gap. To call the real provider once:
 
 ```sh
-pnpm --filter @doc-review/api test:live              # invoice-001.pdf; reads LLM_API_KEY/LLM_MODEL/LLM_PROVIDER from .env
+export LLM_LIVE_TEST_PROVIDER=anthropic LLM_LIVE_TEST_MODEL=claude-haiku-5-5
+read -rs LLM_LIVE_TEST_KEY && export LLM_LIVE_TEST_KEY   # paste the key; it is not echoed
+pnpm --filter @doc-review/api test:live              # invoice-001.pdf
 LLM_RECORD=1 pnpm --filter @doc-review/api test:live  # also refreshes the recordings for all three fixtures
 ```
+
+These test-only variables are separate from the app, which only ever uses the key saved (encrypted) in Settings.
 
 The golden recordings come from Anthropic. The OpenAI tests use `chat.completion` bodies built in code from the same recorded fields (`openAiRecording`). A live run with an OpenAI key and `LLM_RECORD=1` saves real ones under `test/recordings/openai/`.
 
@@ -437,7 +477,7 @@ Three layers, each a Vitest project, so every layer can run on its own:
 
 **Deterministic.** Waits are bounded polls (`waitFor`, 10 s max) on states the API or database reports, never fixed sleeps. Lease expiry uses the database clock. No test is retried to hide a flake. The suite passed 5 runs in a row and a run with `--sequence.shuffle`.
 
-**Coverage is gated only where it matters:** ≥ 90% lines and branches on evidence verification (`verify-fields`, `value-support`, `match-text`), `compareVersions`, job claiming and fencing (`jobs.repository`), and the web app's review-state helpers (`lib/status`, `lib/group-values`). Review-state derivation itself is the `value_review_states` SQL view, covered through the API tests. Everything else is reported, not gated.
+**Coverage is gated only where it matters:** ≥ 90% lines and branches on evidence verification (`verify-fields`, `value-support`, `match-text`), `compareVersions`, job claiming and fencing (`jobs.repository`), secret encryption (`crypto/secret-box`), and the web app's review-state helpers (`lib/status`, `lib/group-values`). Review-state derivation itself is the `value_review_states` SQL view, covered through the API tests. Everything else is reported, not gated.
 
 **Not covered:** no real-browser tests (components run in jsdom), and no live LLM in CI (`test:live` is manual).
 

@@ -1,13 +1,20 @@
 import styles from './Onboarding.module.css';
 import { ExtractionSnippet } from './snippets/ExtractionSnippet.js';
 import { ReviewSnippet } from './snippets/ReviewSnippet.js';
+import { SettingsSnippet } from './snippets/SettingsSnippet.js';
 import { UploadSnippet } from './snippets/UploadSnippet.js';
 import { VersionSnippet } from './snippets/VersionSnippet.js';
 import { StepCard } from './StepCard.js';
 
-/** The four steps, in the order the system runs them. Each description is the text equivalent
+/** The five steps, in the order the system runs them. Each description is the text equivalent
  * of its (decorative) snippet. */
 const STEPS = [
+  {
+    title: 'Configure an LLM',
+    description:
+      'Open Settings, choose Claude (Anthropic) or OpenAI, paste an API key and test the connection. A low-cost model suited to one-page extraction is pre-selected. Until an LLM is saved, uploads wait in the queue.',
+    snippet: (play: boolean) => <SettingsSnippet play={play} />,
+  },
   {
     title: 'Upload a PDF',
     description:

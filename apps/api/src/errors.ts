@@ -33,3 +33,8 @@ export class ValidationError extends DomainError {
     super(message);
   }
 }
+
+export class RateLimitedError extends DomainError {
+  readonly statusCode = 429;
+  readonly code = 'RATE_LIMITED';
+}

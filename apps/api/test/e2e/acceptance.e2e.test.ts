@@ -3,8 +3,15 @@ import { count, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { extractedValues, extractionJobs } from '../../src/db/schema.js';
 import { GAP_REASONS } from '../../src/extraction/validate/verify-fields.js';
+import type { AvailableModel } from '../../src/llm/modelCatalog.js';
+import { LlmSettingsResolver } from '../../src/llm/settings-resolver.js';
 import { connectTestDatabase, resetDatabase, type TestDatabase } from '../../src/test/db.js';
-import { createTestApp, type TestApp, uploadDocument } from '../../src/test/http.js';
+import {
+  createTestApp,
+  TEST_ENCRYPTION_KEY,
+  type TestApp,
+  uploadDocument,
+} from '../../src/test/http.js';
 import {
   buildRecording,
   jsonResponse,
@@ -29,6 +36,19 @@ import {
   WAIT_MS,
   waitForVersion,
 } from './harness.js';
+
+const E2E_KEY = 'sk-ant-api03-e2e-settings-key-000-E2E1';
+
+/** What list-models returns for the e2e key (the real filter and recommendation still run). */
+function extractionInputModels(): AvailableModel[] {
+  return ['claude-haiku-5-5', 'claude-sonnet-5-5'].map((id) => ({
+    id,
+    displayName: null,
+    structuredOutputs: true,
+    effort: true,
+    deprecated: false,
+  }));
+}
 
 /**
  * The client's acceptance scenarios, end to end: HTTP in, real worker, real Postgres, real PDF
@@ -98,9 +118,40 @@ async function reviewInvoice(documentId: string) {
 }
 
 describe('acceptance (e2e)', () => {
-  it('1. seeds three documents, extracts all of them, and reports the missing income as a gap', async () => {
+  it('1. waits for an LLM in Settings, then extracts all seeded documents; income is a gap', async () => {
+    // The app as a reviewer first meets it: seeded, no LLM configured yet.
+    await testApp.close();
+    testApp = await createTestApp(testDb.db, {
+      listModels: async () => extractionInputModels(),
+    });
+    client = api(testApp);
     await seed(testDb);
-    run(answerFrom(recordedReplies()));
+    const resolver = new LlmSettingsResolver({
+      db: testDb.db,
+      encryptionKey: TEST_ENCRYPTION_KEY,
+      timeoutMs: 5000,
+      cacheMs: 0,
+    });
+    let claimChecks = 0;
+    run(answerFrom(recordedReplies()), {
+      canClaim: async () => {
+        claimChecks += 1;
+        return resolver.isConfigured();
+      },
+    });
+
+    await waitFor(async () => claimChecks >= 6, { description: 'the worker to poll a few times' });
+    expect((await client.list()).map((doc) => doc.status)).toEqual(['queued', 'queued', 'queued']);
+    expect(await testDb.db.select().from(extractionJobs)).toEqual(
+      Array.from({ length: 3 }, () => expect.objectContaining({ status: 'queued', attempts: 0 })),
+    );
+
+    const saved = await testApp.app.inject({
+      method: 'PUT',
+      url: '/settings/llm',
+      payload: { provider: 'anthropic', model: 'claude-haiku-5-5', apiKey: E2E_KEY },
+    });
+    expect(saved.statusCode).toBe(200);
 
     await waitFor(async () => (await client.list()).every((doc) => doc.status === 'extracted'), {
       timeoutMs: WAIT_MS,

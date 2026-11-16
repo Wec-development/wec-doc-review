@@ -19,3 +19,7 @@ services:
 
 volumes:
   pgdata:
+  # Holds encryption.key, which encrypts the LLM API key stored in Postgres (the key itself is
+  # never in the database). Step 10 mounts it into the api and worker services at SECRETS_DIR
+  # (e.g. /run/secrets/doc-review), so both use the same key and it survives restarts.
+  secrets:

@@ -5,6 +5,7 @@ import { useAnnounce } from '../components/Announcer.js';
 import { DocumentsTable } from '../components/DocumentsTable.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { ErrorState } from '../components/ErrorState.js';
+import { LlmPausedBanner } from '../components/LlmPausedBanner.js';
 import { Skeleton } from '../components/Skeleton.js';
 import { SummaryCards } from '../components/SummaryCards.js';
 import { UploadDialog } from '../components/UploadDialog.js';
@@ -33,6 +34,7 @@ export function DocumentsPage() {
 
   return (
     <main className={styles.main}>
+      <LlmPausedBanner />
       <div className={styles.titleRow}>
         <div>
           <h1 className={styles.h1}>Documents</h1>

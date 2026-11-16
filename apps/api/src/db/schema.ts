@@ -4,6 +4,7 @@ import {
   OPEN_JOB_STATUSES,
   COMPARISONS,
   GAP_KINDS,
+  LLM_PROVIDERS,
   REVIEW_ACTIONS,
   type CarriedAction,
   type ComparisonReason,
@@ -15,12 +16,14 @@ import {
   type AnyPgColumn,
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
   pgView,
+  smallint,
   text,
   timestamp,
   unique,
@@ -35,6 +38,12 @@ export const jobStatus = pgEnum('job_status', JOB_STATUSES);
 export const reviewAction = pgEnum('review_action', REVIEW_ACTIONS);
 export const comparison = pgEnum('comparison', COMPARISONS);
 export const gapKind = pgEnum('gap_kind', GAP_KINDS);
+export const llmProvider = pgEnum('llm_provider', LLM_PROVIDERS);
+
+/** Raw bytes (node-postgres returns bytea as a Buffer). */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => 'bytea',
+});
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
@@ -115,6 +124,8 @@ export const extractionJobs = pgTable(
     prompt: text('prompt'),
     promptVersion: text('prompt_version'),
     model: text('model'),
+    // Which API served the attempt (null for the fake extractor and for older jobs).
+    provider: llmProvider('provider'),
     rawResponse: jsonb('raw_response'),
     usage: jsonb('usage'),
     llmDurationMs: integer('llm_duration_ms'),
@@ -247,3 +258,32 @@ export const valueReviewStates = pgView('value_review_states', {
   carriedFromReviewId: uuid('carried_from_review_id'),
   carriedAction: text('carried_action').$type<CarriedAction>(),
 }).existing();
+
+/**
+ * The LLM the worker uses: provider, model and the API key, encrypted with AES-256-GCM. The
+ * encryption key never lives in the database (see src/crypto/encryption-key.ts). A single row:
+ * the primary key can only be 1, and saving replaces it (the old ciphertext is not kept).
+ */
+export const llmSettings = pgTable(
+  'llm_settings',
+  {
+    id: smallint('id').primaryKey().default(1),
+    provider: llmProvider('provider').notNull(),
+    model: text('model').notNull(),
+    apiKeyCiphertext: bytea('api_key_ciphertext').notNull(),
+    apiKeyIv: bytea('api_key_iv').notNull(),
+    apiKeyTag: bytea('api_key_tag').notNull(),
+    keyVersion: smallint('key_version').notNull(),
+    // Last 4 characters only, for display ("…a1b2").
+    keyHint: text('key_hint').notNull(),
+    lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    check('llm_settings_single_row', sql`${table.id} = 1`),
+    check('llm_settings_iv_length', sql`octet_length(${table.apiKeyIv}) = 12`),
+    check('llm_settings_tag_length', sql`octet_length(${table.apiKeyTag}) = 16`),
+    check('llm_settings_key_hint_length', sql`char_length(${table.keyHint}) <= 4`),
+  ],
+);

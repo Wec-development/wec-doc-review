@@ -37,8 +37,8 @@ export function WelcomePage() {
             Ready to review
           </h2>
           <p className={styles.ctaText}>
-            Three sample documents are already loaded. Open one to see its values, quotes and gaps,
-            or upload your own PDF.
+            Upload an invoice, lease or market report PDF, then open it to check each value against
+            its quote and review any gaps.
           </p>
         </div>
         <Link to="/" className={buttons.primary} onClick={markOnboardingSeen}>

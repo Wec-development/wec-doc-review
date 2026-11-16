@@ -16,8 +16,8 @@ export function Hero({ animate }: { animate: boolean }) {
         Trustworthy data from your documents — every value backed by its source.
       </p>
       <p className={styles.intro}>
-        Four steps take a PDF from upload to reviewed values, and keep your reviews when a revised
-        version arrives.
+        Five steps take you from choosing an AI model to reviewed values, and keep your reviews when
+        a revised version arrives.
       </p>
     </header>
   );

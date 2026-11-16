@@ -201,7 +201,9 @@ describe('LLM extraction through the worker', () => {
     const failed = (await testDb.db.select().from(documentVersions)).find(
       (v) => v.status === 'failed',
     );
-    expect(failed?.error).toBe('Extraction failed: LLM authentication failed — check LLM_API_KEY');
+    expect(failed?.error).toBe(
+      'Extraction failed: LLM authentication failed — update the API key in Settings',
+    );
     const job = await jobOf(failed?.id ?? '');
     expect(job).toMatchObject({ status: 'failed', attempts: 1 });
     expect(JSON.stringify(job)).not.toContain(TEST_API_KEY);
@@ -217,12 +219,13 @@ describe('LLM extraction through the worker', () => {
       const { versionId } = uploadAcceptedSchema.parse(upload.json());
       const { fetch, calls } = replayFetch(() => jsonResponse(500, {}));
       const extractor = new LlmExtractor({
-        llm: new AnthropicLlmClient({
-          apiKey: TEST_API_KEY,
-          model: TEST_MODEL,
-          timeoutMs: 1000,
-          fetch,
-        }),
+        llm: async () =>
+          new AnthropicLlmClient({
+            apiKey: TEST_API_KEY,
+            model: TEST_MODEL,
+            timeoutMs: 1000,
+            fetch,
+          }),
         resolveFile: createFileResolver(new LocalDiskStorage(testApp.storageDir), FIXTURES_DIR),
         maxDocumentChars: 100_000,
       });

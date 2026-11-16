@@ -1,4 +1,10 @@
-import type { DocumentDetail, DocumentList, ReviewRequest } from '@doc-review/shared';
+import type {
+  DocumentDetail,
+  DocumentList,
+  LlmSaveRequest,
+  LlmTestRequest,
+  ReviewRequest,
+} from '@doc-review/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { isInFlight } from '../lib/status.js';
@@ -12,6 +18,7 @@ export const queryKeys = {
   documentAll: (id: string) => ['document', id] as const,
   progress: (id: string, version?: number) => ['progress', id, version ?? 'current'] as const,
   progressAll: (id: string) => ['progress', id] as const,
+  llmSettings: ['settings', 'llm'] as const,
 };
 
 /** Poll the list only while some document is queued or extracting; stop once all settle. */
@@ -118,5 +125,27 @@ export function useRetry() {
   return useMutation({
     mutationFn: (documentId: string) => api.retry(documentId),
     onSuccess: (_accepted, documentId) => invalidate(documentId),
+  });
+}
+
+/** Whether an LLM is configured (drives the "extraction is paused" banner and Settings). */
+export function useLlmSettings() {
+  return useQuery({ queryKey: queryKeys.llmSettings, queryFn: () => api.getLlmSettings() });
+}
+
+/** Never retried or cached: each test is an explicit action with the key being typed. */
+export function useTestLlmConnection() {
+  return useMutation({ mutationFn: (input: LlmTestRequest) => api.testLlmConnection(input) });
+}
+
+export function useSaveLlmSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: LlmSaveRequest) => api.saveLlmSettings(input),
+    onSuccess: async (saved) => {
+      queryClient.setQueryData(queryKeys.llmSettings, saved);
+      // Queued documents start extracting now; refresh their status.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+    },
   });
 }

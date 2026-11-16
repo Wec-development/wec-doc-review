@@ -76,7 +76,12 @@ export function startWorker(
   testDb: TestDatabase,
   testApp: TestApp,
   respond: (call: RecordedCall, index: number) => Response,
-  options: { workerId?: string; delayMs?: (call: RecordedCall) => number } = {},
+  options: {
+    workerId?: string;
+    delayMs?: (call: RecordedCall) => number;
+    /** The claim gate (production: "is an LLM configured in Settings?"). */
+    canClaim?: () => Promise<boolean>;
+  } = {},
 ) {
   const { extractor, calls } = uploadsExtractor(testApp.storageDir, respond, {
     delayMs: options.delayMs,
@@ -89,7 +94,11 @@ export function startWorker(
       workerId: options.workerId ?? 'e2e-worker',
       settings: { leaseSeconds: 5, maxAttempts: 3, backoffBaseMs: 0 },
     },
-    { concurrency: 2, pollIntervalMs: 25 },
+    {
+      concurrency: 2,
+      pollIntervalMs: 25,
+      ...(options.canClaim ? { canClaim: options.canClaim } : {}),
+    },
   );
   worker.start();
   return { worker, calls };

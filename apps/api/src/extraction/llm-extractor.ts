@@ -8,7 +8,11 @@ import { parseModelOutput } from './validate/parse-model-output.js';
 import { verifyFields } from './validate/verify-fields.js';
 
 export interface LlmExtractorDeps {
-  llm: LlmClient;
+  /**
+   * The client for this job, resolved per call: the provider, model and key come from the
+   * saved settings, so a change applies to the next job without a restart.
+   */
+  llm: () => Promise<LlmClient>;
   /** file_path from the version row -> absolute path to read. */
   resolveFile: (filePath: string) => string;
   maxDocumentChars: number;
@@ -28,10 +32,12 @@ export class LlmExtractor implements Extractor {
       this.deps.maxDocumentChars,
     );
     const prompt = buildPrompt(documentType, parsedText);
+    const llm = await this.deps.llm();
     const diagnostics: ExtractionDiagnostics = {
       prompt: renderPromptForStorage(prompt),
       promptVersion: PROMPT_VERSION,
-      model: this.deps.llm.model,
+      provider: llm.provider,
+      model: llm.model,
       rawResponse: null,
       usage: null,
       durationMs: null,
@@ -39,7 +45,7 @@ export class LlmExtractor implements Extractor {
 
     const startedAt = performance.now();
     try {
-      const response = await this.deps.llm.extractFields({ ...prompt, signal });
+      const response = await llm.extractFields({ ...prompt, signal });
       Object.assign(diagnostics, {
         model: response.model,
         rawResponse: response.raw,

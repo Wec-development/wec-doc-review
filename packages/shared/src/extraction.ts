@@ -53,6 +53,8 @@ export const extractionDiagnosticsSchema = z.object({
   prompt: z.string(),
   promptVersion: z.string().nullable(),
   model: z.string().nullable(),
+  /** Which API served the call (anthropic | openai); absent for the fake extractor. */
+  provider: z.enum(['anthropic', 'openai']).nullable().optional(),
   /** The provider's raw response; null when the call failed before a response. */
   rawResponse: z.unknown(),
   usage: tokenUsageSchema.nullable(),

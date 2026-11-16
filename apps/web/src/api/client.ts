@@ -8,6 +8,12 @@ import {
   errorEnvelopeSchema,
   type ExtractedValue,
   extractedValueSchema,
+  type LlmSaveRequest,
+  type LlmSettings,
+  llmSettingsSchema,
+  type LlmTestRequest,
+  type LlmTestResult,
+  llmTestResultSchema,
   type RetryAccepted,
   retryAcceptedSchema,
   type ReviewProgress,
@@ -89,6 +95,14 @@ function postJson<T>(path: string, schema: Schema<T>, body?: unknown): Promise<T
   });
 }
 
+function putJson<T>(path: string, schema: Schema<T>, body: unknown): Promise<T> {
+  return request(path, schema, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 function postForm<T>(path: string, schema: Schema<T>, form: FormData): Promise<T> {
   return request(path, schema, { method: 'POST', body: form });
 }
@@ -126,6 +140,15 @@ export const api = {
 
   retry: (documentId: string): Promise<RetryAccepted> =>
     postJson(`/documents/${documentId}/retry`, retryAcceptedSchema),
+
+  getLlmSettings: (): Promise<LlmSettings> => request('/settings/llm', llmSettingsSchema),
+
+  /** The key travels only in this request body; responses never contain it. */
+  testLlmConnection: (input: LlmTestRequest): Promise<LlmTestResult> =>
+    postJson('/settings/llm/test', llmTestResultSchema, input),
+
+  saveLlmSettings: (input: LlmSaveRequest): Promise<LlmSettings> =>
+    putJson('/settings/llm', llmSettingsSchema, input),
 };
 
 /** A message for any thrown value, for error states and toasts. */

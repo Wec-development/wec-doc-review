@@ -26,6 +26,12 @@ export function AppHeader() {
         </NavLink>
         <nav aria-label="Main" className={styles.nav}>
           <NavLink
+            to="/welcome"
+            className={({ isActive }) => (isActive ? styles.active : styles.link)}
+          >
+            How it works
+          </NavLink>
+          <NavLink
             to="/"
             end
             className={({ isActive }) => (isActive ? styles.active : styles.link)}
@@ -33,10 +39,10 @@ export function AppHeader() {
             Documents
           </NavLink>
           <NavLink
-            to="/welcome"
+            to="/settings"
             className={({ isActive }) => (isActive ? styles.active : styles.link)}
           >
-            How it works
+            Settings
           </NavLink>
         </nav>
       </div>

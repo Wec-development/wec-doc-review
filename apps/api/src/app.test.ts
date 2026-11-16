@@ -16,7 +16,11 @@ function fakeDb(execute: () => Promise<unknown>): Database {
 
 describe('GET /health', () => {
   it('reports ok when the database answers', async () => {
-    const app = buildApp({ db: fakeDb(async () => ({ rows: [] })), storage: unusedStorage });
+    const app = buildApp({
+      db: fakeDb(async () => ({ rows: [] })),
+      storage: unusedStorage,
+      encryptionKey: Buffer.alloc(32),
+    });
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok', database: 'up' });
@@ -28,6 +32,7 @@ describe('GET /health', () => {
         throw new Error('connection refused');
       }),
       storage: unusedStorage,
+      encryptionKey: Buffer.alloc(32),
     });
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(503);

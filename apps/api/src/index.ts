@@ -1,13 +1,20 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { resolveEncryptionKey } from './crypto/encryption-key.js';
 import { createDb } from './db.js';
 import { createDatabase } from './db/client.js';
 import { LocalDiskStorage } from './storage/file-storage.js';
 
 const config = loadConfig();
+// Fails fast (before listening) if the key that protects stored API keys is unavailable.
+const encryptionKey = resolveEncryptionKey({
+  envKey: config.APP_ENCRYPTION_KEY,
+  secretsDir: config.SECRETS_DIR,
+});
 const pool = createDb(config.DATABASE_URL);
 const app = buildApp({
   db: createDatabase(pool),
+  encryptionKey,
   storage: new LocalDiskStorage(config.STORAGE_DIR),
   options: { webOrigin: config.WEB_ORIGIN, maxUploadMb: config.MAX_UPLOAD_MB },
 });

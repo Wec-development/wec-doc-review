@@ -82,12 +82,13 @@ function invoiceExtractor(options: { failRevised?: boolean; delayRevisedMs?: num
     return fetch(input, init);
   };
   return new LlmExtractor({
-    llm: new AnthropicLlmClient({
-      apiKey: TEST_API_KEY,
-      model: TEST_MODEL,
-      timeoutMs: 5000,
-      fetch: delayedFetch,
-    }),
+    llm: async () =>
+      new AnthropicLlmClient({
+        apiKey: TEST_API_KEY,
+        model: TEST_MODEL,
+        timeoutMs: 5000,
+        fetch: delayedFetch,
+      }),
     resolveFile: createFileResolver(new LocalDiskStorage(testApp.storageDir), FIXTURES_DIR),
     maxDocumentChars: 100_000,
   });

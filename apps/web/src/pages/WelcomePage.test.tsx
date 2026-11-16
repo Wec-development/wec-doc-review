@@ -13,7 +13,7 @@ vi.mock('../api/client.js', async (importOriginal) =>
 );
 const api = mockedApi();
 
-const STEP_TITLES = ['Upload a PDF', 'Extraction', 'Review', 'New versions'];
+const STEP_TITLES = ['Configure an LLM', 'Upload a PDF', 'Extraction', 'Review', 'New versions'];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -116,8 +116,8 @@ describe('leaving and reopening the onboarding', () => {
     await expectWelcomePage();
     const main = screen.getByRole('main');
 
-    // Header links come first (brand, Documents, How it works), then the skip link.
-    for (let tab = 0; tab < 4; tab += 1) await user.tab();
+    // Header links come first; the first thing focused inside the page is the skip link.
+    while (!main.contains(document.activeElement)) await user.tab();
 
     expect(document.activeElement).toBe(
       within(main).getByRole('link', { name: 'Skip — go to documents' }),
@@ -126,7 +126,7 @@ describe('leaving and reopening the onboarding', () => {
 });
 
 describe('content', () => {
-  it('shows one h1, the promise, and the four steps in order with their headings', async () => {
+  it('shows one h1, the promise, and the five steps in order with their headings', async () => {
     renderApp('/welcome');
     await expectWelcomePage();
 
@@ -160,9 +160,9 @@ describe('motion', () => {
     const { container } = renderApp('/welcome');
     await expectWelcomePage();
 
-    expect(container.querySelectorAll('[data-animate]')).toHaveLength(5);
-    expect(container.querySelectorAll('[class*="animate"]')).toHaveLength(5);
-    expect(container.querySelectorAll('[class*="play"]')).toHaveLength(4);
+    expect(container.querySelectorAll('[data-animate]')).toHaveLength(6);
+    expect(container.querySelectorAll('[class*="animate"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[class*="play"]')).toHaveLength(5);
   });
 
   it('applies no animation at all with prefers-reduced-motion: reduce', async () => {

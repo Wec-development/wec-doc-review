@@ -12,6 +12,11 @@ coverage/
 .env.*
 !.env.example
 
+# The key that encrypts stored LLM API keys (SECRETS_DIR). Never commit it. Anchored so a
+# source folder named secrets/ would not be ignored by accident.
+/secrets/
+/apps/api/secrets/
+
 # Uploaded PDFs stored at runtime (STORAGE_DIR). Anchored so source folders such as
 # apps/api/src/storage/ are not ignored.
 /storage/
