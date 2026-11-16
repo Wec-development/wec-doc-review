@@ -22,7 +22,10 @@ export interface ValueView {
   id: string;
   field: string;
   value: string | null;
+  normalizedValue: string | null;
   evidence: string | null;
+  evidenceStart: number | null;
+  evidenceEnd: number | null;
   gapReason: string | null;
   carriedOver: boolean;
   reviewState: ReviewState;
@@ -138,7 +141,10 @@ async function selectValueViews(db: Executor, where: SQL | undefined): Promise<V
       id: extractedValues.id,
       field: extractedValues.field,
       value: extractedValues.value,
+      normalizedValue: extractedValues.normalizedValue,
       evidence: extractedValues.evidence,
+      evidenceStart: extractedValues.evidenceStart,
+      evidenceEnd: extractedValues.evidenceEnd,
       gapReason: extractedValues.gapReason,
       carriedOver: extractedValues.carriedOver,
       reviewState: valueReviewStates.reviewState,
@@ -166,7 +172,10 @@ async function selectValueViews(db: Executor, where: SQL | undefined): Promise<V
     id: row.id,
     field: row.field,
     value: row.value,
+    normalizedValue: row.normalizedValue,
     evidence: row.evidence,
+    evidenceStart: row.evidenceStart,
+    evidenceEnd: row.evidenceEnd,
     gapReason: row.gapReason,
     carriedOver: row.carriedOver,
     reviewState: row.reviewState,

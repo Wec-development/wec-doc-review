@@ -98,7 +98,11 @@ export class FakeExtractor implements Extractor {
     return {
       fields,
       prompt: `fake prompt: extract ${fields.map((f) => f.field).join(', ')}`,
+      promptVersion: 'fake',
+      model: 'fake',
       rawResponse: { extractor: 'fake', fields },
+      usage: null,
+      durationMs: null,
       parsedText: fields
         .map((f) => f.evidence)
         .filter((evidence) => evidence !== null)

@@ -29,6 +29,13 @@
       "when": 1794766513198,
       "tag": "0003_job_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794799472145,
+      "tag": "0004_extraction_details",
+      "breakpoints": true
     }
   ]
 }

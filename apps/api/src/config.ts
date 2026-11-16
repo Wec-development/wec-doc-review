@@ -1,11 +1,23 @@
 import { z } from 'zod';
 
+/** An empty variable (e.g. `LLM_MODEL=` copied from .env.example) counts as unset. */
+const optionalText = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.string().trim().min(1).optional(),
+);
+
 /** Environment is validated once at startup so a missing variable fails fast with a clear message. */
 const envSchema = z.object({
   DATABASE_URL: z.url().default('postgres://app:app@localhost:5433/app'),
   API_PORT: z.coerce.number().int().positive().default(3000),
-  LLM_API_KEY: z.string().optional(),
-  LLM_MODEL: z.string().optional(),
+  // Secret: only ever passed to the LLM client; never logged, stored or returned by the API.
+  LLM_API_KEY: optionalText,
+  // Required when EXTRACTOR=llm, e.g. claude-opus-5-5.
+  LLM_MODEL: optionalText,
+  // One LLM call may take this long before it counts as a (retryable) timeout.
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // Larger documents fail permanently instead of producing an oversized prompt.
+  MAX_DOCUMENT_CHARS: z.coerce.number().int().positive().default(100_000),
   // Defaults to the repo's fixtures/ folder; containers mount it elsewhere.
   FIXTURES_DIR: z.string().min(1).optional(),
   // Uploaded PDFs; relative paths resolve against the API's working directory.
@@ -25,15 +37,24 @@ const envSchema = z.object({
   // Retry delay: base * 2^(attempt-1), with jitter, capped at 5 minutes.
   JOB_BACKOFF_BASE_MS: z.coerce.number().int().nonnegative().default(2000),
 
-  // Which extractor the worker uses. `llm` is implemented in Step 6.
-  EXTRACTOR: z.enum(['fake', 'llm']).default('fake'),
+  // Which extractor the worker uses. Unset: `llm` when LLM_API_KEY is set, otherwise `fake`
+  // (so tests and CI, which have no key, never call a real model).
+  EXTRACTOR: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.enum(['fake', 'llm']).optional(),
+  ),
   // Fake extractor only: outcome and simulated duration (useful for crash and retry testing).
   FAKE_EXTRACTOR_BEHAVIOR: z.enum(['succeed', 'retryable', 'permanent']).default('succeed'),
   FAKE_EXTRACTOR_DELAY_MS: z.coerce.number().int().nonnegative().default(1500),
 });
 
-export type Config = z.infer<typeof envSchema>;
+const configSchema = envSchema.transform((env) => ({
+  ...env,
+  EXTRACTOR: env.EXTRACTOR ?? (env.LLM_API_KEY ? ('llm' as const) : ('fake' as const)),
+}));
+
+export type Config = z.infer<typeof configSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  return envSchema.parse(env);
+  return configSchema.parse(env);
 }

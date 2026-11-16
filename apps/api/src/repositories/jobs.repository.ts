@@ -1,4 +1,4 @@
-import type { DocumentType, ExtractionResult } from '@doc-review/shared';
+import type { DocumentType, ExtractionDiagnostics, ExtractionResult } from '@doc-review/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database, Executor } from '../db/client.js';
 import { documentVersions, extractedValues, extractionJobs } from '../db/schema.js';
@@ -25,6 +25,18 @@ export interface ClaimedJob {
 /** Fenced writes either apply or report that this worker no longer owns the job. */
 export type FencedResult = 'applied' | 'lease_lost';
 export type CompleteResult = 'done' | 'superseded' | 'lease_lost';
+
+/** Job columns that record an attempt's model call (kept on success and on failure). */
+function diagnosticsColumns(diagnostics: ExtractionDiagnostics) {
+  return {
+    prompt: diagnostics.prompt,
+    promptVersion: diagnostics.promptVersion,
+    model: diagnostics.model,
+    rawResponse: diagnostics.rawResponse ?? null,
+    usage: diagnostics.usage,
+    llmDurationMs: diagnostics.durationMs,
+  };
+}
 
 const seconds = (value: number) => sql`make_interval(secs => ${value}::double precision)`;
 const millis = (value: number) => sql`make_interval(secs => ${value / 1000}::double precision)`;
@@ -170,8 +182,7 @@ export async function completeJob(
       .update(extractionJobs)
       .set({
         status: 'done',
-        prompt: result.prompt,
-        rawResponse: result.rawResponse,
+        ...diagnosticsColumns(result),
         lastError: null,
         lockedUntil: null,
         finishedAt: sql`now()`,
@@ -201,7 +212,12 @@ export async function scheduleRetry(
   db: Database,
   job: ClaimedJob,
   workerId: string,
-  input: { delayMs: number; error: string; versionError: string },
+  input: {
+    delayMs: number;
+    error: string;
+    versionError: string;
+    diagnostics?: ExtractionDiagnostics | null;
+  },
 ): Promise<FencedResult> {
   return db.transaction(async (tx) => {
     const fenced = await tx
@@ -212,6 +228,7 @@ export async function scheduleRetry(
         lockedUntil: null,
         runAfter: sql`now() + ${millis(input.delayMs)}`,
         lastError: input.error,
+        ...(input.diagnostics ? diagnosticsColumns(input.diagnostics) : {}),
       })
       .where(ownedBy(job.jobId, workerId))
       .returning({ id: extractionJobs.id });
@@ -231,7 +248,7 @@ export async function failJob(
   db: Database,
   job: ClaimedJob,
   workerId: string,
-  input: { error: string; versionError: string },
+  input: { error: string; versionError: string; diagnostics?: ExtractionDiagnostics | null },
 ): Promise<FencedResult> {
   return db.transaction(async (tx) => {
     const fenced = await tx
@@ -241,6 +258,7 @@ export async function failJob(
         lockedUntil: null,
         finishedAt: sql`now()`,
         lastError: input.error,
+        ...(input.diagnostics ? diagnosticsColumns(input.diagnostics) : {}),
       })
       .where(ownedBy(job.jobId, workerId))
       .returning({ id: extractionJobs.id });

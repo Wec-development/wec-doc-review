@@ -1,4 +1,4 @@
-import { extractionResultSchema } from '@doc-review/shared';
+import { type ExtractionDiagnostics, extractionResultSchema } from '@doc-review/shared';
 import type { Database } from '../db/client.js';
 import { classifyError } from '../extraction/errors.js';
 import type { Extractor } from '../extraction/extractor.js';
@@ -12,7 +12,7 @@ import {
   scheduleRetry,
 } from '../repositories/jobs.repository.js';
 import { backoffMs } from './backoff.js';
-import type { Logger } from './logger.js';
+import type { LogFields, Logger } from './logger.js';
 
 /**
  * done / retry / failed / superseded: the job reached that state.
@@ -74,12 +74,26 @@ async function lostOwnership(deps: ProcessDeps, job: ClaimedJob): Promise<JobOut
   return status === 'superseded' ? 'superseded' : 'lease_lost';
 }
 
+/** What the log line reports about the model call: never text, evidence or keys. */
+function describeDiagnostics(diagnostics: ExtractionDiagnostics | null): LogFields {
+  if (!diagnostics) return {};
+  return {
+    model: diagnostics.model,
+    promptVersion: diagnostics.promptVersion,
+    inputTokens: diagnostics.usage?.inputTokens,
+    outputTokens: diagnostics.usage?.outputTokens,
+    llmDurationMs: diagnostics.durationMs,
+  };
+}
+
 async function handleFailure(
   deps: ProcessDeps,
   job: ClaimedJob,
   error: unknown,
+  details: LogFields,
 ): Promise<JobOutcome> {
-  const { retryable, message } = classifyError(error);
+  const { retryable, message, diagnostics } = classifyError(error);
+  Object.assign(details, describeDiagnostics(diagnostics), { error: message });
   const { maxAttempts, backoffBaseMs, random } = deps.settings;
 
   if (retryable && job.attempt < maxAttempts) {
@@ -88,6 +102,7 @@ async function handleFailure(
       delayMs,
       error: message,
       versionError: `Attempt ${job.attempt} of ${maxAttempts} failed, retrying: ${message}`,
+      diagnostics,
     });
     return written === 'applied' ? 'retry' : lostOwnership(deps, job);
   }
@@ -95,7 +110,11 @@ async function handleFailure(
   const versionError = retryable
     ? `Extraction failed after ${job.attempt} attempts: ${message}`
     : `Extraction failed: ${message}`;
-  const written = await failJob(deps.db, job, deps.workerId, { error: message, versionError });
+  const written = await failJob(deps.db, job, deps.workerId, {
+    error: message,
+    versionError,
+    diagnostics,
+  });
   return written === 'applied' ? 'failed' : lostOwnership(deps, job);
 }
 
@@ -103,6 +122,7 @@ async function extractAndComplete(
   deps: ProcessDeps,
   job: ClaimedJob,
   run: AbortController,
+  details: LogFields,
 ): Promise<JobOutcome> {
   try {
     const raw = await deps.extractor.extract({
@@ -112,6 +132,11 @@ async function extractAndComplete(
       signal: run.signal,
     });
     const result = extractionResultSchema.parse(raw);
+    const gaps = result.fields.filter((field) => field.value === null).length;
+    Object.assign(details, describeDiagnostics(result), {
+      values: result.fields.length - gaps,
+      gaps,
+    });
     const completed = await completeJob(deps.db, job, deps.workerId, result);
     return completed === 'lease_lost' ? lostOwnership(deps, job) : completed;
   } catch (error) {
@@ -122,7 +147,7 @@ async function extractAndComplete(
     if (run.signal.reason === LEASE_LOST) {
       return lostOwnership(deps, job);
     }
-    return handleFailure(deps, job, error);
+    return handleFailure(deps, job, error, details);
   }
 }
 
@@ -152,6 +177,7 @@ export async function processJob(
   }
 
   let outcome: JobOutcome;
+  const details: LogFields = {};
   try {
     if (job.attempt > deps.settings.maxAttempts) {
       // The job kept dying mid-run (crash or lost lease) until it ran out of attempts.
@@ -159,9 +185,10 @@ export async function processJob(
         deps,
         job,
         new Error(`Gave up after ${deps.settings.maxAttempts} attempts that never finished`),
+        details,
       );
     } else {
-      outcome = await extractAndComplete(deps, job, run);
+      outcome = await extractAndComplete(deps, job, run, details);
     }
   } catch (error) {
     log.error('Could not record the job outcome; the lease will expire and it will be retried', {
@@ -175,6 +202,6 @@ export async function processJob(
 
   const durationMs = Math.round(performance.now() - startedAt);
   const level = outcome === 'done' || outcome === 'released' ? 'info' : 'warn';
-  log[level]('Job finished', { outcome, durationMs });
+  log[level]('Job finished', { outcome, durationMs, ...details });
   return outcome;
 }
