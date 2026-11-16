@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LlmExtractor } from '../extraction/llm-extractor.js';
 import { AnthropicLlmClient } from '../extraction/llm/anthropic-client.js';
+import { createFileResolver } from '../extraction/resolve-file.js';
+import { LocalDiskStorage } from '../storage/file-storage.js';
 
 /** apps/api/test/recordings: real-shaped Messages API response bodies, one per fixture. */
 const RECORDINGS_DIR = fileURLToPath(new URL('../../test/recordings/', import.meta.url));
@@ -14,6 +16,83 @@ export const TEST_API_KEY = 'sk-ant-test-key-never-logged-0000';
 
 export function loadRecording(name: string): unknown {
   return JSON.parse(readFileSync(`${RECORDINGS_DIR}${name}.json`, 'utf8'));
+}
+
+/** One field of a recorded model reply, in the wire format the prompt asks for. */
+export interface RecordedField {
+  field: string;
+  value: string | null;
+  evidence: string | null;
+  not_found_reason: string | null;
+}
+
+interface RecordedMessage {
+  id: string;
+  content: { type: string; text?: string }[];
+  stop_reason: string;
+  stop_details: unknown;
+  [key: string]: unknown;
+}
+
+function asRecordedMessage(recording: unknown): RecordedMessage {
+  const message = recording as RecordedMessage;
+  if (typeof message.id !== 'string' || !Array.isArray(message.content)) {
+    throw new Error('Not a recorded Messages API response');
+  }
+  return message;
+}
+
+function recordedText(message: RecordedMessage): string {
+  const text = message.content.find((block) => block.type === 'text')?.text;
+  if (text === undefined) throw new Error(`Recording ${message.id} has no text block`);
+  return text;
+}
+
+/** The fields of a recorded reply, e.g. to derive a variant from it. */
+export function recordedFields(name: string): RecordedField[] {
+  const parsed = JSON.parse(recordedText(asRecordedMessage(loadRecording(name)))) as {
+    fields: RecordedField[];
+  };
+  return parsed.fields;
+}
+
+/**
+ * A variant of a real recording: same envelope (model, usage, thinking block), with the fields
+ * rewritten by `editFields`, or a refusal. Variants stay typed, so no JSON is hand-copied.
+ */
+export function buildRecording(
+  base: string,
+  changes: {
+    id: string;
+    editFields?: (fields: RecordedField[]) => RecordedField[];
+    refusal?: { category: string };
+  },
+): RecordedMessage {
+  const message = asRecordedMessage(loadRecording(base));
+  if (changes.refusal) {
+    return {
+      ...message,
+      id: changes.id,
+      content: message.content.filter((block) => block.type !== 'text'),
+      stop_reason: 'refusal',
+      stop_details: { type: 'refusal', category: changes.refusal.category, explanation: null },
+    };
+  }
+  const fields = (changes.editFields ?? ((same) => same))(recordedFields(base));
+  return {
+    ...message,
+    id: changes.id,
+    content: message.content.map((block) =>
+      block.type === 'text' ? { ...block, text: JSON.stringify({ fields }) } : block,
+    ),
+  };
+}
+
+/** Replaces the named fields of a recorded reply. */
+export function overrideFields(
+  overrides: Record<string, Partial<RecordedField>>,
+): (fields: RecordedField[]) => RecordedField[] {
+  return (fields) => fields.map((f) => ({ ...f, ...overrides[f.field] }));
 }
 
 export function jsonResponse(status: number, body: unknown): Response {
@@ -94,6 +173,39 @@ export function recordedLlmExtractor(fetch: typeof globalThis.fetch, maxDocument
     resolveFile: (filePath) => `${FIXTURES_DIR}${filePath.replace(/^fixtures\//, '')}`,
     maxDocumentChars,
   });
+}
+
+/**
+ * The production pipeline for uploaded files: real PDF parsing of what the API stored, the real
+ * SDK client, and replies from `respond`. `delayMs` holds a reply back (e.g. to upload a newer
+ * version while this one is still running).
+ */
+export function uploadsExtractor(
+  storageDir: string,
+  respond: (call: RecordedCall, index: number) => Response,
+  options: { delayMs?: (call: RecordedCall) => number } = {},
+) {
+  const replay = replayFetch(respond);
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const delay = options.delayMs?.({
+      url: String(input),
+      body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
+      headers: new Headers(init?.headers),
+    });
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    return replay.fetch(input, init);
+  };
+  const extractor = new LlmExtractor({
+    llm: new AnthropicLlmClient({
+      apiKey: TEST_API_KEY,
+      model: TEST_MODEL,
+      timeoutMs: 5000,
+      fetch,
+    }),
+    resolveFile: createFileResolver(new LocalDiskStorage(storageDir), FIXTURES_DIR),
+    maxDocumentChars: 100_000,
+  });
+  return { extractor, calls: replay.calls };
 }
 
 /** A structurally valid one-page PDF with no text at all, like a scanned image-only page. */

@@ -7,12 +7,16 @@ import { FakeExtractor } from '../extraction/fake-extractor.js';
 import {
   claimNextJob,
   completeJob,
+  countExpiredLeases,
   failJob,
   type ClaimedJob,
+  releaseJob,
+  scheduleRetry,
 } from '../repositories/jobs.repository.js';
 import { connectTestDatabase, resetDatabase, type TestDatabase } from '../test/db.js';
 import { makeDocumentWithVersion, makeJob, makeVersion } from '../test/factories.js';
 import { createTestApp, uploadVersion } from '../test/http.js';
+import { waitFor } from '../test/wait.js';
 import { createLogger } from './logger.js';
 import { type JobSettings, processJob } from './process-job.js';
 import { Worker } from './worker.js';
@@ -105,14 +109,6 @@ async function makeDue(jobId: string) {
   await testDb.db.execute(sql`update extraction_jobs set run_after = now() where id = ${jobId}`);
 }
 
-async function waitFor(condition: () => Promise<boolean>, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!(await condition())) {
-    if (Date.now() > deadline) throw new Error('Timed out waiting for condition');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
 const isRunning = (jobId: string) => async () => (await jobRow(jobId)).status === 'running';
 
 describe('worker: happy path', () => {
@@ -174,6 +170,18 @@ describe('worker: claiming', () => {
     });
   });
 
+  it('counts running jobs whose lease expired (reported by the worker at startup)', async () => {
+    const crashed = await queuedInvoice();
+    await queuedInvoice();
+    await claimNextJob(testDb.db, 'worker-a', LEASE_SECONDS);
+    await claimNextJob(testDb.db, 'worker-b', LEASE_SECONDS);
+    expect(await countExpiredLeases(testDb.db)).toBe(0);
+
+    await expireLease(crashed.jobId);
+
+    expect(await countExpiredLeases(testDb.db)).toBe(1);
+  });
+
   it('fails a job that keeps losing its worker once attempts are exhausted', async () => {
     const { jobId, versionId } = await queuedInvoice();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -222,6 +230,14 @@ describe('worker: leases and fencing', () => {
     expect(await failJob(testDb.db, zombie, 'worker-a', { error: 'x', versionError: 'x' })).toBe(
       'lease_lost',
     );
+    expect(
+      await scheduleRetry(testDb.db, zombie, 'worker-a', {
+        delayMs: 0,
+        error: 'x',
+        versionError: 'x',
+      }),
+    ).toBe('lease_lost');
+    expect(await releaseJob(testDb.db, zombie, 'worker-a')).toBe('lease_lost');
     expect(await jobRow(jobId)).toMatchObject({ status: 'running', lockedBy: 'worker-b' });
     expect(await valueCount(versionId)).toBe(0);
   });
