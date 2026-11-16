@@ -1,6 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ExtractionError, PermanentError, RetryableError } from '../errors.js';
-import type { LlmClient, LlmRequest, LlmResponse, WithRawResponse } from './llm-client.js';
+import {
+  AUTH_FAILED_MESSAGE,
+  type LlmClient,
+  type LlmRequest,
+  type LlmResponse,
+  type WithRawResponse,
+} from './llm-client.js';
 
 /** Enough for every field plus adaptive thinking on a one-page document. */
 const MAX_OUTPUT_TOKENS = 16_000;
@@ -44,7 +50,7 @@ export function toExtractionError(error: unknown): ExtractionError {
     error instanceof Anthropic.PermissionDeniedError
   ) {
     // Never include the key or the provider's message, which can echo request details.
-    return new PermanentError('LLM authentication failed — check LLM_API_KEY', { cause: error });
+    return new PermanentError(AUTH_FAILED_MESSAGE, { cause: error });
   }
   if (error instanceof Anthropic.RateLimitError) {
     return new RetryableError('LLM rate limit reached (429)', { cause: error });
@@ -87,6 +93,7 @@ function textOf(message: Anthropic.Beta.BetaMessage): string | null {
 }
 
 export class AnthropicLlmClient implements LlmClient {
+  readonly provider = 'anthropic' as const;
   readonly model: string;
   private readonly client: Anthropic;
 

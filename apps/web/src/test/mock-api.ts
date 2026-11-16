@@ -11,5 +11,8 @@ export function mockedApi() {
     uploadVersion: vi.mocked(api.uploadVersion),
     reviewValue: vi.mocked(api.reviewValue),
     retry: vi.mocked(api.retry),
+    getLlmSettings: vi.mocked(api.getLlmSettings),
+    testLlmConnection: vi.mocked(api.testLlmConnection),
+    saveLlmSettings: vi.mocked(api.saveLlmSettings),
   };
 }

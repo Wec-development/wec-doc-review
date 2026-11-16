@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 
-// Live tests need LLM_API_KEY / LLM_MODEL. Load them from the repo's .env when present (Node's
-// built-in loader; values already set in the shell win). Nothing here prints them.
+// Live tests need LLM_LIVE_TEST_PROVIDER / LLM_LIVE_TEST_MODEL / LLM_LIVE_TEST_KEY (test-only;
+// the app itself reads its key from Settings). Values set in the shell win; a repo .env is also
+// loaded with Node's built-in loader when present. Nothing here prints them.
 const envFile = new URL('../../.env', import.meta.url);
 if (existsSync(envFile)) {
   process.loadEnvFile(envFile);

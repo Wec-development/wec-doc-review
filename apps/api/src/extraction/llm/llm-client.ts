@@ -1,4 +1,4 @@
-import type { TokenUsage } from '@doc-review/shared';
+import type { LlmProvider, TokenUsage } from '@doc-review/shared';
 
 export interface LlmRequest {
   system: string;
@@ -24,6 +24,7 @@ export interface LlmResponse {
  * carry the raw response in `rawResponse` when the provider returned one.
  */
 export interface LlmClient {
+  readonly provider: LlmProvider;
   readonly model: string;
   extractFields(request: LlmRequest): Promise<LlmResponse>;
 }
@@ -33,3 +34,6 @@ export interface WithRawResponse {
   rawResponse?: unknown;
   usage?: TokenUsage;
 }
+
+/** Shown when the provider rejects the stored key; the fix is in the app, not in .env. */
+export const AUTH_FAILED_MESSAGE = 'LLM authentication failed — update the API key in Settings';

@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { inject } from 'vitest';
+import { TEST_ENCRYPTION_KEY } from '../../src/test/http.js';
 
 const API_DIR = fileURLToPath(new URL('../../', import.meta.url));
 const WORKER_ENTRY = fileURLToPath(new URL('../../src/worker/index.ts', import.meta.url));
@@ -28,6 +29,8 @@ export function startWorkerProcess() {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       DATABASE_URL: inject('databaseUrl'),
+      // The test key, so the child never generates a key file in SECRETS_DIR.
+      APP_ENCRYPTION_KEY: TEST_ENCRYPTION_KEY.toString('base64'),
       EXTRACTOR: 'fake',
       FAKE_EXTRACTOR_DELAY_MS: '60000',
       WORKER_CONCURRENCY: '1',

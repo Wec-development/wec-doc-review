@@ -45,7 +45,7 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-5);
 }
 
@@ -147,6 +147,10 @@
 
 .step:nth-child(4) {
   --step-delay: 300ms;
+}
+
+.step:nth-child(5) {
+  --step-delay: 400ms;
 }
 
 @keyframes rise {

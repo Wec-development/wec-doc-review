@@ -80,7 +80,9 @@ describe('OpenAiLlmClient error mapping', () => {
     const { client } = clientAnswering(() => apiError(401, 'invalid_api_key'));
     const error = await client.extractFields(prompt).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(PermanentError);
-    expect((error as Error).message).toBe('LLM authentication failed — check LLM_API_KEY');
+    expect((error as Error).message).toBe(
+      'LLM authentication failed — update the API key in Settings',
+    );
     expect(JSON.stringify(error)).not.toContain(TEST_API_KEY);
   });
 

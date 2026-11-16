@@ -1,38 +1,20 @@
 import { z } from 'zod';
 
-/** An empty variable (e.g. `LLM_MODEL=` copied from .env.example) counts as unset. */
+/** An empty variable (e.g. `APP_ENCRYPTION_KEY=` copied from .env.example) counts as unset. */
 const optionalText = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().trim().min(1).optional(),
 );
 
-export const LLM_PROVIDERS = ['anthropic', 'openai'] as const;
-export type LlmProvider = (typeof LLM_PROVIDERS)[number];
-
-/**
- * The provider a model name belongs to, so a model and key from one provider are never sent to
- * the other. Undefined for names it does not recognise; the worker then refuses to start.
- */
-export function inferProvider(model: string | undefined): LlmProvider | undefined {
-  if (!model) return undefined;
-  if (model.startsWith('claude-')) return 'anthropic';
-  if (/^(gpt-|chatgpt-|o\d)/.test(model)) return 'openai';
-  return undefined;
-}
-
 /** Environment is validated once at startup so a missing variable fails fast with a clear message. */
 const envSchema = z.object({
   DATABASE_URL: z.url().default('postgres://app:app@localhost:5433/app'),
   API_PORT: z.coerce.number().int().positive().default(3000),
-  // Secret: only ever passed to the LLM client; never logged, stored or returned by the API.
-  LLM_API_KEY: optionalText,
-  // Required when EXTRACTOR=llm, e.g. claude-opus-5-5 or gpt-4o-mini.
-  LLM_MODEL: optionalText,
-  // Which API LLM_API_KEY belongs to. Unset: inferred from LLM_MODEL (see inferProvider).
-  LLM_PROVIDER: z.preprocess(
-    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-    z.enum(LLM_PROVIDERS).optional(),
-  ),
+  // The LLM provider, model and API key are configured in the app (Settings) and stored
+  // encrypted in Postgres. This key encrypts them: 32 bytes, base64. Unset: a key file in
+  // SECRETS_DIR is generated on first start. Never logged.
+  APP_ENCRYPTION_KEY: optionalText,
+  SECRETS_DIR: z.string().min(1).default('./secrets'),
   // One LLM call may take this long before it counts as a (retryable) timeout.
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   // Larger documents fail permanently instead of producing an oversized prompt.
@@ -56,22 +38,18 @@ const envSchema = z.object({
   // Retry delay: base * 2^(attempt-1), with jitter, capped at 5 minutes.
   JOB_BACKOFF_BASE_MS: z.coerce.number().int().nonnegative().default(2000),
 
-  // Which extractor the worker uses. Unset: `llm` when LLM_API_KEY is set, otherwise `fake`
-  // (so tests and CI, which have no key, never call a real model).
+  // Which extractor the worker uses: `llm` (provider and key from Settings; the worker waits
+  // until they are configured) or `fake` (deterministic values, for demos without a key).
   EXTRACTOR: z.preprocess(
     (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-    z.enum(['fake', 'llm']).optional(),
+    z.enum(['fake', 'llm']).default('llm'),
   ),
   // Fake extractor only: outcome and simulated duration (useful for crash and retry testing).
   FAKE_EXTRACTOR_BEHAVIOR: z.enum(['succeed', 'retryable', 'permanent']).default('succeed'),
   FAKE_EXTRACTOR_DELAY_MS: z.coerce.number().int().nonnegative().default(1500),
 });
 
-const configSchema = envSchema.transform((env) => ({
-  ...env,
-  LLM_PROVIDER: env.LLM_PROVIDER ?? inferProvider(env.LLM_MODEL),
-  EXTRACTOR: env.EXTRACTOR ?? (env.LLM_API_KEY ? ('llm' as const) : ('fake' as const)),
-}));
+const configSchema = envSchema;
 
 export type Config = z.infer<typeof configSchema>;
 

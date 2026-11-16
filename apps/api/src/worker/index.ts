@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { loadConfig } from '../config.js';
+import { resolveEncryptionKey } from '../crypto/encryption-key.js';
 import { createDb } from '../db.js';
 import { createDatabase } from '../db/client.js';
 import { createExtractor } from '../extraction/create-extractor.js';
+import { LlmSettingsResolver } from '../llm/settings-resolver.js';
 import { countExpiredLeases } from '../repositories/jobs.repository.js';
 import { createLogger } from './logger.js';
 import { Worker } from './worker.js';
@@ -16,12 +18,37 @@ const pool = createDb(config.DATABASE_URL, (error) =>
 );
 const db = createDatabase(pool);
 
+/** Logs once when extraction pauses (no LLM configured) and once when it resumes. */
+function logPauseChanges(canClaim: () => Promise<boolean>): () => Promise<boolean> {
+  let paused: boolean | null = null;
+  return async () => {
+    const allowed = await canClaim();
+    if (paused !== !allowed) {
+      paused = !allowed;
+      if (paused) logger.warn('Extraction paused — configure an LLM in Settings');
+      else if (config.EXTRACTOR === 'llm') logger.info('LLM configured; extraction running');
+    }
+    return allowed;
+  };
+}
+
 let worker: Worker;
 try {
+  // Fails fast if the key that decrypts the stored API key is unavailable.
+  const encryptionKey = resolveEncryptionKey({
+    envKey: config.APP_ENCRYPTION_KEY,
+    secretsDir: config.SECRETS_DIR,
+  });
+  const settings = new LlmSettingsResolver({
+    db,
+    encryptionKey,
+    timeoutMs: config.LLM_TIMEOUT_MS,
+  });
+  const { extractor, canClaim } = createExtractor(config, settings);
   worker = new Worker(
     {
       db,
-      extractor: createExtractor(config),
+      extractor,
       logger,
       workerId,
       settings: {
@@ -30,13 +57,15 @@ try {
         backoffBaseMs: config.JOB_BACKOFF_BASE_MS,
       },
     },
-    { concurrency: config.WORKER_CONCURRENCY, pollIntervalMs: config.WORKER_POLL_INTERVAL_MS },
+    {
+      concurrency: config.WORKER_CONCURRENCY,
+      pollIntervalMs: config.WORKER_POLL_INTERVAL_MS,
+      canClaim: logPauseChanges(canClaim),
+    },
   );
   const expiredLeases = await countExpiredLeases(db);
   logger.info('Worker starting', {
     extractor: config.EXTRACTOR,
-    provider: config.EXTRACTOR === 'llm' ? config.LLM_PROVIDER : undefined,
-    model: config.EXTRACTOR === 'llm' ? config.LLM_MODEL : undefined,
     concurrency: config.WORKER_CONCURRENCY,
     leaseSeconds: config.JOB_LEASE_SECONDS,
     maxAttempts: config.JOB_MAX_ATTEMPTS,

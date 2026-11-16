@@ -44,6 +44,7 @@ function diagnosticsColumns(diagnostics: ExtractionDiagnostics) {
     prompt: diagnostics.prompt,
     promptVersion: diagnostics.promptVersion,
     model: diagnostics.model,
+    provider: diagnostics.provider ?? null,
     rawResponse: diagnostics.rawResponse ?? null,
     usage: diagnostics.usage,
     llmDurationMs: diagnostics.durationMs,

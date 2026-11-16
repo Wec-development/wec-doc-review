@@ -4,6 +4,7 @@ import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
 import { DocumentsPage } from './pages/DocumentsPage.js';
 import { useFirstVisit } from './hooks/useFirstVisit.js';
 import { NotFoundPage } from './pages/NotFoundPage.js';
+import { SettingsPage } from './pages/SettingsPage.js';
 import { WelcomePage } from './pages/WelcomePage.js';
 
 /** The documents list, except on a first visit, which goes to the onboarding once. */
@@ -18,6 +19,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<DocumentsOrFirstVisit />} />
         <Route path="/welcome" element={<WelcomePage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/documents/:id" element={<DocumentDetailPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

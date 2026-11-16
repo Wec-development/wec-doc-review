@@ -11,7 +11,12 @@ export const silentLogger = createLogger({}, () => undefined);
 /** A real Worker against the test database, with no backoff and a quiet logger. */
 export function makeTestWorker(
   db: Database,
-  input: { extractor?: Extractor; workerId?: string; settings?: Partial<JobSettings> } = {},
+  input: {
+    extractor?: Extractor;
+    workerId?: string;
+    settings?: Partial<JobSettings>;
+    canClaim?: () => Promise<boolean>;
+  } = {},
 ): Worker {
   return new Worker(
     {
@@ -21,7 +26,11 @@ export function makeTestWorker(
       workerId: input.workerId ?? 'worker-test',
       settings: { leaseSeconds: 30, maxAttempts: 3, backoffBaseMs: 0, ...input.settings },
     },
-    { concurrency: 1, pollIntervalMs: 20 },
+    {
+      concurrency: 1,
+      pollIntervalMs: 20,
+      ...(input.canClaim ? { canClaim: input.canClaim } : {}),
+    },
   );
 }
 

@@ -43,6 +43,13 @@
       "when": 1794801509297,
       "tag": "0005_carry_over",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794817981627,
+      "tag": "0006_llm_settings",
+      "breakpoints": true
     }
   ]
 }

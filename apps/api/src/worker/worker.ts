@@ -5,6 +5,11 @@ import { type JobOutcome, type ProcessDeps, processJob } from './process-job.js'
 export interface WorkerOptions {
   concurrency: number;
   pollIntervalMs: number;
+  /**
+   * Checked before every claim. While false (e.g. no LLM configured in Settings) nothing is
+   * claimed, so jobs stay queued and no attempts are used up.
+   */
+  canClaim?: () => Promise<boolean>;
 }
 
 /** Resolves after `ms`, or as soon as `signal` aborts. */
@@ -42,8 +47,11 @@ export class Worker {
     this.log = deps.logger;
   }
 
-  /** Claims and processes at most one job. Returns null when nothing was claimable. */
+  /** Claims and processes at most one job. Returns null when nothing was claimable (or paused). */
   async runOnce(): Promise<JobOutcome | null> {
+    if (this.options.canClaim && !(await this.options.canClaim())) {
+      return null;
+    }
     const job = await claimNextJob(
       this.deps.db,
       this.deps.workerId,

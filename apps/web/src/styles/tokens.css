@@ -58,6 +58,11 @@
   box-sizing: border-box;
 }
 
+/* Keyboard focus and in-page jumps stop below the sticky header instead of under it. */
+html {
+  scroll-padding-top: 80px;
+}
+
 html,
 body {
   margin: 0;

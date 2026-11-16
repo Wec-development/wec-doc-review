@@ -11,6 +11,7 @@ import {
 } from '../api/queries.js';
 import { useAnnounce } from '../components/Announcer.js';
 import { ErrorState } from '../components/ErrorState.js';
+import { LlmPausedBanner } from '../components/LlmPausedBanner.js';
 import { Skeleton } from '../components/Skeleton.js';
 import { UploadDialog } from '../components/UploadDialog.js';
 import { usePageTitle } from '../hooks/usePageTitle.js';
@@ -70,6 +71,7 @@ export function DocumentDetailPage() {
 
   return (
     <main className={styles.detailMain}>
+      <LlmPausedBanner />
       {detail.isPending && <Skeleton rows={3} label="Loading document" />}
       {detail.isError && (
         <ErrorState message={errorMessage(detail.error)} onRetry={() => void detail.refetch()} />

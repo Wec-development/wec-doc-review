@@ -26,6 +26,7 @@ export default defineConfig({
         'src/index.ts',
         'src/worker/index.ts',
         'src/db/run-*.ts',
+        'src/llm/print-models.ts',
       ],
       reporter: ['text-summary', 'json-summary', 'html'],
       // Gates only the modules the client's tests depend on; the rest is reported, not gated.
@@ -35,6 +36,7 @@ export default defineConfig({
         'src/extraction/normalise/match-text.ts': { lines: 90, branches: 90 },
         'src/extraction/carry-over/compare-versions.ts': { lines: 90, branches: 90 },
         'src/repositories/jobs.repository.ts': { lines: 90, branches: 90 },
+        'src/crypto/secret-box.ts': { lines: 90, branches: 90 },
       },
     },
     projects: [

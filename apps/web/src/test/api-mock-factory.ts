@@ -18,6 +18,9 @@ export async function apiModuleMock(importOriginal: () => Promise<typeof ClientM
       uploadVersion: vi.fn(),
       reviewValue: vi.fn(),
       retry: vi.fn(),
+      getLlmSettings: vi.fn(),
+      testLlmConnection: vi.fn(),
+      saveLlmSettings: vi.fn(),
     },
   };
 }

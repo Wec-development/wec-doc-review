@@ -5,9 +5,13 @@ import path from 'node:path';
 import { errorEnvelopeSchema, type ErrorCode } from '@doc-review/shared';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
-import { type AppOptions, buildApp } from '../app.js';
+import { type AppDeps, type AppOptions, buildApp } from '../app.js';
 import type { Database } from '../db/client.js';
+import type { ListModels } from '../services/settings.service.js';
 import { type FileStorage, LocalDiskStorage } from '../storage/file-storage.js';
+
+/** A fixed encryption key for tests (production resolves one from env or SECRETS_DIR). */
+export const TEST_ENCRYPTION_KEY = Buffer.alloc(32, 7);
 
 export interface TestApp {
   app: FastifyInstance;
@@ -20,11 +24,24 @@ export interface TestApp {
 /** Builds the app with a fresh temporary storage directory. */
 export async function createTestApp(
   db: Database,
-  input: { options?: Partial<AppOptions>; storage?: (dir: string) => FileStorage } = {},
+  input: {
+    options?: Partial<AppOptions>;
+    storage?: (dir: string) => FileStorage;
+    encryptionKey?: Buffer;
+    listModels?: ListModels;
+    logger?: AppDeps['logger'];
+  } = {},
 ): Promise<TestApp> {
   const storageDir = await mkdtemp(path.join(tmpdir(), 'doc-review-storage-'));
   const storage = input.storage?.(storageDir) ?? new LocalDiskStorage(storageDir);
-  const app = buildApp({ db, storage, options: input.options });
+  const app = buildApp({
+    db,
+    storage,
+    encryptionKey: input.encryptionKey ?? TEST_ENCRYPTION_KEY,
+    options: input.options,
+    ...(input.listModels ? { listModels: input.listModels } : {}),
+    ...(input.logger !== undefined ? { logger: input.logger } : {}),
+  });
   await app.ready();
   return {
     app,

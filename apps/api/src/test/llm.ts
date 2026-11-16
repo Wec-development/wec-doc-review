@@ -204,12 +204,13 @@ export function respondByDocumentText(rules: [marker: string, recording: string]
 /** The production pipeline (real PDF parser, real SDK client) answered by `fetch`. */
 export function recordedLlmExtractor(fetch: typeof globalThis.fetch, maxDocumentChars = 100_000) {
   return new LlmExtractor({
-    llm: new AnthropicLlmClient({
-      apiKey: TEST_API_KEY,
-      model: TEST_MODEL,
-      timeoutMs: 5000,
-      fetch,
-    }),
+    llm: async () =>
+      new AnthropicLlmClient({
+        apiKey: TEST_API_KEY,
+        model: TEST_MODEL,
+        timeoutMs: 5000,
+        fetch,
+      }),
     resolveFile: (filePath) => `${FIXTURES_DIR}${filePath.replace(/^fixtures\//, '')}`,
     maxDocumentChars,
   });
@@ -236,7 +237,7 @@ export function uploadsExtractor(
     return replay.fetch(input, init);
   };
   const extractor = new LlmExtractor({
-    llm:
+    llm: async () =>
       options.provider === 'openai'
         ? new OpenAiLlmClient({
             apiKey: TEST_API_KEY,

@@ -1,48 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { inferProvider, loadConfig } from './config.js';
+import { loadConfig } from './config.js';
 
 describe('loadConfig: extractor selection', () => {
-  it('uses the fake extractor when there is no API key (tests and CI)', () => {
-    expect(loadConfig({}).EXTRACTOR).toBe('fake');
-    expect(loadConfig({ LLM_API_KEY: '', EXTRACTOR: '' }).EXTRACTOR).toBe('fake');
+  it('uses the LLM extractor by default (provider and key come from Settings)', () => {
+    expect(loadConfig({}).EXTRACTOR).toBe('llm');
+    expect(loadConfig({ EXTRACTOR: '' }).EXTRACTOR).toBe('llm');
   });
 
-  it('uses the LLM extractor by default when an API key is set', () => {
-    expect(loadConfig({ LLM_API_KEY: 'sk-test' }).EXTRACTOR).toBe('llm');
-  });
-
-  it('respects an explicit EXTRACTOR', () => {
-    expect(loadConfig({ LLM_API_KEY: 'sk-test', EXTRACTOR: 'fake' }).EXTRACTOR).toBe('fake');
-  });
-
-  it('treats an empty LLM_MODEL as unset', () => {
-    expect(loadConfig({ LLM_MODEL: '  ' }).LLM_MODEL).toBeUndefined();
+  it('respects an explicit EXTRACTOR=fake', () => {
+    expect(loadConfig({ EXTRACTOR: 'fake' }).EXTRACTOR).toBe('fake');
   });
 });
 
-describe('loadConfig: LLM provider', () => {
-  it('infers the provider from the model name', () => {
-    expect(inferProvider('claude-opus-5-5')).toBe('anthropic');
-    expect(inferProvider('gpt-4o-mini')).toBe('openai');
-    expect(inferProvider('chatgpt-4o-latest')).toBe('openai');
-    expect(inferProvider('o4-mini')).toBe('openai');
-    expect(loadConfig({ LLM_MODEL: 'gpt-4o-mini' }).LLM_PROVIDER).toBe('openai');
+describe('loadConfig: secrets', () => {
+  it('has no LLM key, model or provider settings any more', () => {
+    const config = loadConfig({ LLM_API_KEY: 'sk-ant-ignored', LLM_MODEL: 'x' });
+    expect(config).not.toHaveProperty('LLM_API_KEY');
+    expect(config).not.toHaveProperty('LLM_MODEL');
+    expect(config).not.toHaveProperty('LLM_PROVIDER');
   });
 
-  it('leaves the provider unset for an unknown model or no model', () => {
-    expect(loadConfig({ LLM_MODEL: 'mistral-large' }).LLM_PROVIDER).toBeUndefined();
-    expect(loadConfig({}).LLM_PROVIDER).toBeUndefined();
-    expect(inferProvider('omni-model')).toBeUndefined();
+  it('defaults SECRETS_DIR to ./secrets and treats an empty APP_ENCRYPTION_KEY as unset', () => {
+    const config = loadConfig({ APP_ENCRYPTION_KEY: '  ' });
+    expect(config.SECRETS_DIR).toBe('./secrets');
+    expect(config.APP_ENCRYPTION_KEY).toBeUndefined();
   });
 
-  it('lets an explicit LLM_PROVIDER win over the inferred one', () => {
-    expect(loadConfig({ LLM_MODEL: 'my-gpt-proxy', LLM_PROVIDER: 'openai' }).LLM_PROVIDER).toBe(
-      'openai',
-    );
-    expect(loadConfig({ LLM_MODEL: 'gpt-4o-mini', LLM_PROVIDER: '' }).LLM_PROVIDER).toBe('openai');
-  });
-
-  it('rejects an unknown LLM_PROVIDER', () => {
-    expect(() => loadConfig({ LLM_PROVIDER: 'gemini' })).toThrow();
+  it('keeps the operational LLM limits as environment settings', () => {
+    expect(loadConfig({ LLM_TIMEOUT_MS: '5000' })).toMatchObject({
+      LLM_TIMEOUT_MS: 5000,
+      MAX_DOCUMENT_CHARS: 100_000,
+    });
   });
 });

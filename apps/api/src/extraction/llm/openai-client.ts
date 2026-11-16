@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 import { ExtractionError, PermanentError, RetryableError } from '../errors.js';
-import type { LlmClient, LlmRequest, LlmResponse, WithRawResponse } from './llm-client.js';
+import {
+  AUTH_FAILED_MESSAGE,
+  type LlmClient,
+  type LlmRequest,
+  type LlmResponse,
+  type WithRawResponse,
+} from './llm-client.js';
 
 /** Enough for every field of a one-page document, and within every current model's limit. */
 const MAX_OUTPUT_TOKENS = 16_000;
@@ -41,7 +47,7 @@ export function toExtractionError(error: unknown): ExtractionError {
     error instanceof OpenAI.PermissionDeniedError
   ) {
     // Never include the key or the provider's message, which can echo request details.
-    return new PermanentError('LLM authentication failed — check LLM_API_KEY', { cause: error });
+    return new PermanentError(AUTH_FAILED_MESSAGE, { cause: error });
   }
   if (error instanceof OpenAI.RateLimitError) {
     return new RetryableError('LLM rate limit reached (429)', { cause: error });
@@ -76,6 +82,7 @@ export function toExtractionError(error: unknown): ExtractionError {
 
 /** One Chat Completions call with a strict JSON schema (structured outputs). */
 export class OpenAiLlmClient implements LlmClient {
+  readonly provider = 'openai' as const;
   readonly model: string;
   private readonly client: OpenAI;
 

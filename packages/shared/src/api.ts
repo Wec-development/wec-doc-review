@@ -155,6 +155,9 @@ export const ERROR_CODES = [
   'PAYLOAD_TOO_LARGE',
   'UNSUPPORTED_MEDIA_TYPE',
   'BAD_REQUEST',
+  'INVALID_API_KEY',
+  'PROVIDER_UNAVAILABLE',
+  'RATE_LIMITED',
   'INTERNAL_ERROR',
 ] as const;
 export const errorCodeSchema = z.enum(ERROR_CODES);

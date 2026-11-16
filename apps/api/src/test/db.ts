@@ -26,7 +26,7 @@ export async function resetDatabase(db: Database): Promise<void> {
     throw new Error(`Refusing to truncate non-test database "${row?.name ?? 'unknown'}"`);
   }
   await db.execute(
-    sql`truncate table reviews, extracted_values, extraction_jobs, document_versions, documents`,
+    sql`truncate table reviews, extracted_values, extraction_jobs, document_versions, documents, llm_settings`,
   );
 }
 
