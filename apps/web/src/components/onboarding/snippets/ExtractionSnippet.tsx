@@ -7,18 +7,20 @@ export function ExtractionSnippet({ play }: { play: boolean }) {
     <div className={`${styles.frame} ${play ? styles.play : ''}`}>
       <span className={styles.statusStack}>
         <span
-          className={`${badges.badge} ${badges.queued} ${styles.statusPast} ${styles.statusQueued}`}
+          className={`${badges.badge} ${styles.pill} ${badges.queued} ${styles.statusPast} ${styles.statusQueued}`}
         >
           <span className={badges.dot} />
           Queued
         </span>
         <span
-          className={`${badges.badge} ${badges.extracting} ${styles.statusPast} ${styles.statusExtracting}`}
+          className={`${badges.badge} ${styles.pill} ${badges.extracting} ${styles.statusPast} ${styles.statusExtracting}`}
         >
           <span className={badges.dot} />
           Extracting
         </span>
-        <span className={`${badges.badge} ${badges.extracted} ${styles.statusExtracted}`}>
+        <span
+          className={`${badges.badge} ${styles.pill} ${badges.extracted} ${styles.statusExtracted}`}
+        >
           <span className={badges.dot} />
           Extracted
         </span>
@@ -33,7 +35,7 @@ export function ExtractionSnippet({ play }: { play: boolean }) {
       <div className={`${styles.row} ${styles.gapRow}`}>
         <div className={styles.rowHead}>
           <span className={styles.field}>median_household_income</span>
-          <span className={`${badges.badge} ${badges.gap}`}>Gap</span>
+          <span className={`${badges.badge} ${styles.pill} ${badges.gap}`}>Gap</span>
         </div>
         <span className={styles.reason}>The report does not state median household income.</span>
       </div>

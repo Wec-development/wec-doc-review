@@ -8,7 +8,7 @@ export function VersionSnippet({ play }: { play: boolean }) {
       <div className={`${styles.row} ${styles.pendingRow}`}>
         <div className={styles.rowHead}>
           <span className={styles.field}>due_date</span>
-          <span className={`${badges.badge} ${badges.pending}`}>Pending</span>
+          <span className={`${badges.badge} ${styles.pill} ${badges.pending}`}>Pending</span>
         </div>
         <span className={styles.value}>2025-11-13</span>
         <span className={styles.previous}>
@@ -20,7 +20,7 @@ export function VersionSnippet({ play }: { play: boolean }) {
       <div className={styles.row}>
         <div className={styles.rowHead}>
           <span className={styles.field}>invoice_number</span>
-          <span className={`${badges.badge} ${badges.carried} ${styles.appearLate}`}>
+          <span className={`${badges.badge} ${styles.pill} ${badges.carried} ${styles.appearLate}`}>
             Carried over · approved
           </span>
         </div>

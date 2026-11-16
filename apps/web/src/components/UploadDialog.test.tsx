@@ -21,7 +21,7 @@ async function openDialog() {
   const trigger = screen.getAllByRole('button', { name: /Upload PDF/ })[0];
   if (!trigger) throw new Error('no upload button');
   await view.user.click(trigger);
-  const dialog = screen.getByRole('dialog', { name: 'Upload a document' });
+  const dialog = screen.getByRole('dialog', { name: 'Upload documents' });
   return { ...view, dialog: within(dialog), trigger };
 }
 
@@ -107,5 +107,112 @@ describe('UploadDialog', () => {
       await user.tab();
       expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement);
     }
+  });
+
+  it('uploads several PDFs as separate documents of the chosen type, then closes', async () => {
+    api.uploadDocument.mockImplementation(async () => ({
+      documentId: '00000000-0000-4000-8000-0000000000aa',
+      versionId: '00000000-0000-4000-8000-0000000000bb',
+      versionNo: 1,
+      status: 'queued',
+    }));
+    const { user, dialog } = await openDialog();
+    const files = [pdf('a.pdf'), pdf('b.pdf'), pdf('c.pdf')];
+    await user.selectOptions(dialog.getByLabelText(/Document type/), 'market_report');
+    await user.upload(dialog.getByLabelText(/PDF file/), files);
+
+    // A count, not a list of every file.
+    expect(dialog.getByText(/^3 PDFs selected · /)).toBeInTheDocument();
+    expect(dialog.queryByText('a.pdf')).not.toBeInTheDocument();
+    expect(dialog.queryByRole('list')).not.toBeInTheDocument();
+    expect(dialog.queryByLabelText(/Title/)).not.toBeInTheDocument();
+    expect(dialog.getByText('Each document is named after its file')).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Upload 3 documents' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(api.uploadDocument.mock.calls.map(([input]) => input)).toEqual(
+      files.map((file) => ({ type: 'market_report', title: undefined, file })),
+    );
+    expect(screen.getByText('3 documents uploaded — extraction started')).toBeInTheDocument();
+  });
+
+  it('keeps the dialog open after a partial failure and retries only the failed file', async () => {
+    const accepted = {
+      documentId: '00000000-0000-4000-8000-0000000000aa',
+      versionId: '00000000-0000-4000-8000-0000000000bb',
+      versionNo: 1,
+      status: 'queued' as const,
+    };
+    api.uploadDocument
+      .mockResolvedValueOnce(accepted)
+      .mockRejectedValueOnce(new ApiError(503, 'NETWORK_ERROR', 'Could not reach the API'))
+      .mockResolvedValueOnce(accepted)
+      .mockResolvedValueOnce(accepted);
+    const { user, dialog } = await openDialog();
+    await user.upload(dialog.getByLabelText(/PDF file/), [
+      pdf('a.pdf'),
+      pdf('b.pdf'),
+      pdf('c.pdf'),
+    ]);
+    await user.click(dialog.getByRole('button', { name: 'Upload 3 documents' }));
+
+    expect(await dialog.findByRole('alert')).toHaveTextContent('1 of 3 uploads failed');
+    expect(dialog.getByText('2 uploaded · 1 not uploaded')).toBeInTheDocument();
+    // Only the failed file is listed, with its reason.
+    const rows = within(
+      dialog.getByRole('list', { name: 'Files that need attention' }),
+    ).getAllByRole('listitem');
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringMatching(/b\.pdf.*Failed — Could not reach the API/),
+    ]);
+
+    await user.click(dialog.getByRole('button', { name: 'Upload and extract' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(api.uploadDocument).toHaveBeenCalledTimes(4);
+    expect(api.uploadDocument.mock.calls[3]?.[0].file.name).toBe('b.pdf');
+  });
+
+  it('blocks the batch while a chosen file is invalid, until it is removed', async () => {
+    const { user, dialog } = await openDialog();
+    const anyFile = userEvent.setup({ applyAccept: false });
+    await anyFile.upload(dialog.getByLabelText(/PDF file/), [
+      pdf('a.pdf'),
+      new File(['hello'], 'notes.txt', { type: 'text/plain' }),
+    ]);
+    expect(dialog.getByText(/Can't upload — Only PDF files are supported/)).toBeInTheDocument();
+
+    await user.click(dialog.getByRole('button', { name: 'Upload 2 documents' }));
+    expect(dialog.getByRole('alert')).toHaveTextContent('notes.txt: Only PDF files are supported.');
+    expect(api.uploadDocument).not.toHaveBeenCalled();
+
+    await user.click(dialog.getByRole('button', { name: 'Remove notes.txt' }));
+    expect(dialog.queryByRole('alert')).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Upload and extract' })).toBeEnabled();
+    expect(dialog.getByLabelText(/Title/)).toBeInTheDocument();
+  });
+
+  it('ignores the same file chosen twice', async () => {
+    const { user, dialog } = await openDialog();
+    const file = pdf('a.pdf');
+    await user.upload(dialog.getByLabelText(/PDF file/), [file]);
+    await user.upload(dialog.getByLabelText(/PDF file/), [file, pdf('b.pdf')]);
+    expect(dialog.getByText(/^2 PDFs selected · /)).toBeInTheDocument();
+  });
+
+  it('Clear removes every chosen file', async () => {
+    const { user, dialog } = await openDialog();
+    await user.upload(dialog.getByLabelText(/PDF file/), [pdf('a.pdf'), pdf('b.pdf')]);
+
+    await user.click(dialog.getByRole('button', { name: 'Remove all files' }));
+
+    expect(dialog.queryByText(/PDFs selected/)).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Upload and extract' })).toBeEnabled();
+  });
+
+  it('shows the name of a single chosen file', async () => {
+    const { user, dialog } = await openDialog();
+    await user.upload(dialog.getByLabelText(/PDF file/), pdf('lease.pdf'));
+    expect(dialog.getByText(/^lease\.pdf · /)).toBeInTheDocument();
   });
 });

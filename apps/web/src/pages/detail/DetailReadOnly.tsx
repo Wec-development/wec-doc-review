@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { DocumentText } from '../../components/DocumentText.js';
 import { ReviewedRow } from '../../components/ReviewedRow.js';
+import { useMediaQuery, WIDE_LAYOUT_QUERY } from '../../hooks/useMediaQuery.js';
 import { fieldKind } from '../../lib/format-value.js';
 import { valueHighlights } from '../../lib/highlight.js';
 import styles from '../Page.module.css';
@@ -11,6 +12,7 @@ import styles from '../Page.module.css';
 export function DetailReadOnly({ detail }: { detail: DocumentDetail }) {
   const { version, document: doc } = detail;
   const ranges = useMemo(() => valueHighlights(detail.values, true), [detail.values]);
+  const wide = useMediaQuery(WIDE_LAYOUT_QUERY);
 
   return (
     <>
@@ -64,6 +66,7 @@ export function DetailReadOnly({ detail }: { detail: DocumentDetail }) {
             versionNo={version.versionNo}
             ranges={ranges}
             emphasisedKey={null}
+            sticky={wide}
           />
         )}
       </div>

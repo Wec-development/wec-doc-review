@@ -1,39 +1,52 @@
 .backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-dialog);
   background: rgba(26, 26, 26, 0.45);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 10vh var(--space-4) var(--space-4);
+  padding: 8vh var(--space-4) var(--space-4);
   overflow-y: auto;
 }
 
 .dialog {
   width: 100%;
-  max-width: 520px;
+  max-width: 600px;
   background: var(--surface);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow);
+  overflow: hidden;
 }
+
+/* ---- Header ---- */
 
 .head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 18px 20px;
+  gap: var(--space-4);
+  padding: 20px var(--space-5) var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .title {
   margin: 0;
-  font-size: 18px;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
 }
 
 .close {
+  flex: none;
   width: var(--target);
   height: var(--target);
+  margin: -6px -10px 0 0;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -43,38 +56,48 @@
   justify-content: center;
 }
 
+.close:hover {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+/* ---- Body ---- */
+
 .form {
-  padding: 20px;
   display: flex;
   flex-direction: column;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px var(--space-5);
+}
+
+/* Type and title side by side, the same height; stacked on narrow screens. */
+.fieldRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
+}
+
+@media (max-width: 560px) {
+  .fieldRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
-.field label {
+.label {
   font-weight: 600;
   font-size: 13px;
-}
-
-.field select,
-.field input[type='text'],
-.field input[type='file'] {
-  min-height: var(--target);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-}
-
-.field input[type='file'] {
-  padding: 10px var(--space-3);
-  border-style: dashed;
-  background: var(--surface-sunken);
 }
 
 .required {
@@ -88,21 +111,270 @@
   font-size: 12px;
 }
 
-.hint {
+/* One control style for every input: same height, border, radius and padding. */
+.control {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--target);
   margin: 0;
-  font-size: 13px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.control::placeholder {
   color: var(--text-muted);
+}
+
+/* Native selects ignore height on macOS: drop the native look, draw the chevron ourselves. */
+.select {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235c5c5c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+
+.controlNote {
+  display: flex;
+  align-items: center;
+  background: var(--surface-sunken);
+  border-style: dashed;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ---- Drop zone ---- */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-5) var(--space-4);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface-sunken);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease-out,
+    background-color 150ms ease-out;
+}
+
+.dropzone:hover,
+.dragging {
+  border-color: var(--accent);
+  background: var(--corrected-bg);
+}
+
+.dropzone:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dropzoneInvalid {
+  border-color: var(--gap-border);
+}
+
+.dropIcon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.dropText {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.browse {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* ---- Chosen files: a one-line summary, plus rows only for files with a problem ---- */
+
+.selection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target);
+  padding: 4px 6px 4px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.summaryText {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clear {
+  flex: none;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.clear:hover {
+  background: var(--surface-sunken);
+}
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 10px 10px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.fileIcon {
+  flex: none;
+  color: var(--text-muted);
+  display: flex;
+}
+
+.fileInfo {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fileName {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Status: a text label in every row; colour only reinforces it. */
+.uploading .fileIcon {
+  color: var(--accent);
+}
+
+.uploaded {
+  border-color: #b9dcc4;
+  background: var(--approved-bg);
+}
+
+.uploaded .fileIcon,
+.uploaded .fileMeta {
+  color: var(--approved-text);
+}
+
+.invalid,
+.failed {
+  border-color: var(--gap-border);
+  background: #fff8f8;
+}
+
+.invalid .fileIcon,
+.invalid .fileMeta,
+.failed .fileIcon,
+.failed .fileMeta {
+  color: var(--gap-text);
+}
+
+.remove {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--text);
 }
 
 .error {
   margin: 0;
+  padding: 10px var(--space-3);
+  border: 1px solid var(--gap-border);
+  border-radius: var(--radius-control);
+  background: #fff8f8;
   font-size: 13px;
   font-weight: 600;
   color: var(--gap-text);
 }
 
+/* ---- Footer ---- */
+
 .actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-sunken);
+}
+
+.footnote {
+  flex: 1 1 200px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
 }

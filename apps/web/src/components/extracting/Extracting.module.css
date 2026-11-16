@@ -1,0 +1,203 @@
+/* ---- Sticky status bar while a version is queued or extracting ---- */
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: var(--corrected-bg);
+  border: 1px solid var(--corrected-border);
+  color: var(--corrected-text);
+}
+
+.bannerText {
+  flex: 1 1 280px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.bannerNote {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .spinner {
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Left: extraction steps ---- */
+
+.progress {
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.progressTitle {
+  margin: 0 0 var(--space-1);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.progressIntro {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-bottom: 20px;
+}
+
+/* The line joining a step to the next one. */
+.step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 30px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--border);
+}
+
+.step.done:not(:last-child)::after {
+  background: var(--approved-text);
+}
+
+.marker {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.done .marker {
+  border-color: var(--approved-text);
+  background: var(--approved-text);
+  color: var(--surface);
+}
+
+.current .marker {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stepLabel {
+  margin: 3px 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.upcoming .stepLabel {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.stepNote {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.retryNote {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--pending-banner-bg);
+  border: 1px solid var(--pending-banner-border);
+  color: var(--pending-banner-text);
+  font-size: 13px;
+}
+
+.reassure {
+  margin: var(--space-2) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---- Right: the uploaded PDF ---- */
+
+.pdfPanel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 70vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.pdfHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pdfTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pdfLink {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pdfFrame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--surface-sunken);
+}
+
+/* Wide layout: stays in view below the status bar and fills the rest of the viewport. */
+.sticky {
+  position: sticky;
+  top: calc(var(--app-header-height) + var(--review-bar-height) + var(--sticky-gap));
+  height: calc(100vh - var(--app-header-height) - var(--review-bar-height) - 2 * var(--sticky-gap));
+  height: calc(
+    100dvh - var(--app-header-height) - var(--review-bar-height) - 2 * var(--sticky-gap)
+  );
+  min-height: 360px;
+}

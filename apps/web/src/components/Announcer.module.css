@@ -3,7 +3,7 @@
   bottom: var(--space-5);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: var(--z-toast);
   pointer-events: none;
 }
 

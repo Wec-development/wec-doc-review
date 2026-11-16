@@ -1,4 +1,12 @@
-import { documentDetailSchema, documentListSchema, reviewProgressSchema } from '@doc-review/shared';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import {
+  documentDetailSchema,
+  documentListSchema,
+  reviewProgressSchema,
+  uploadAcceptedSchema,
+} from '@doc-review/shared';
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { connectTestDatabase, resetDatabase, type TestDatabase } from '../test/db.js';
 import {
@@ -8,7 +16,17 @@ import {
   makeValue,
   makeVersion,
 } from '../test/factories.js';
-import { createTestApp, expectError, type TestApp } from '../test/http.js';
+import { documents } from '../db/schema.js';
+import { readFixtureManifest, seedFixtures } from '../db/seed.js';
+import {
+  createTestApp,
+  expectError,
+  pdfBytes,
+  type TestApp,
+  uploadDocument,
+  uploadVersion,
+} from '../test/http.js';
+import { FIXTURES_DIR } from '../test/llm.js';
 
 let testDb: TestDatabase;
 let testApp: TestApp;
@@ -272,5 +290,84 @@ describe('GET /documents/:id/progress', () => {
 
   it('returns 404 for an unknown document', async () => {
     expectError(await testApp.app.inject(`/documents/${UNKNOWN_ID}/progress`), 404, 'NOT_FOUND');
+  });
+});
+
+describe('GET /documents/:id/file', () => {
+  it("serves the current version's PDF inline, as uploaded", async () => {
+    const contents = pdfBytes('the stored bytes');
+    const accepted = uploadAcceptedSchema.parse(
+      (
+        await uploadDocument(testApp.app, {
+          type: 'invoice',
+          title: 'Meridian: Q3 invoice',
+          file: { contents },
+        })
+      ).json(),
+    );
+
+    const response = await testApp.app.inject(`/documents/${accepted.documentId}/file`);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('application/pdf');
+    expect(response.headers['content-disposition']).toBe(
+      'inline; filename="meridian-q3-invoice-v1.pdf"',
+    );
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.rawPayload.equals(contents)).toBe(true);
+  });
+
+  it('serves the selected version with ?version=N', async () => {
+    const v1 = pdfBytes('version one');
+    const v2 = pdfBytes('version two');
+    const { documentId } = uploadAcceptedSchema.parse(
+      (await uploadDocument(testApp.app, { type: 'invoice', file: { contents: v1 } })).json(),
+    );
+    await uploadVersion(testApp.app, documentId, { contents: v2 });
+
+    const current = await testApp.app.inject(`/documents/${documentId}/file`);
+    const first = await testApp.app.inject(`/documents/${documentId}/file?version=1`);
+
+    expect(current.rawPayload.equals(v2)).toBe(true);
+    expect(first.rawPayload.equals(v1)).toBe(true);
+  });
+
+  it('serves a seeded document from fixtures/', async () => {
+    const manifest = await readFixtureManifest(FIXTURES_DIR);
+    await testDb.db.transaction((tx) => seedFixtures(tx, manifest));
+    const [invoice] = await testDb.db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(eq(documents.fixtureKey, 'doc-invoice-001'));
+
+    const response = await testApp.app.inject(`/documents/${invoice?.id ?? ''}/file`);
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.rawPayload.equals(readFileSync(`${FIXTURES_DIR}documents/invoice-001.pdf`)),
+    ).toBe(true);
+  });
+
+  it('returns 404 for an unknown document, an unknown version, or a missing file', async () => {
+    expectError(await testApp.app.inject(`/documents/${randomUUID()}/file`), 404, 'NOT_FOUND');
+
+    const { documentId } = await makeDocumentWithVersion(testDb.db);
+    expectError(
+      await testApp.app.inject(`/documents/${documentId}/file?version=9`),
+      404,
+      'NOT_FOUND',
+    );
+    // The version row exists, but its file was never written.
+    expectError(await testApp.app.inject(`/documents/${documentId}/file`), 404, 'NOT_FOUND');
+  });
+
+  it('returns 400 for an invalid id or version', async () => {
+    expectError(await testApp.app.inject('/documents/not-a-uuid/file'), 400, 'VALIDATION_ERROR');
+    const { documentId } = await makeDocumentWithVersion(testDb.db);
+    expectError(
+      await testApp.app.inject(`/documents/${documentId}/file?version=0`),
+      400,
+      'VALIDATION_ERROR',
+    );
   });
 });

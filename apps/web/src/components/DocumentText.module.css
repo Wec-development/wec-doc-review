@@ -55,9 +55,10 @@
 
 /* Keeps the PDF's line layout; long lines scroll sideways inside the panel. */
 .text {
+  position: relative; /* quotes' offsetTop is measured from here when scrolling to them */
   padding: var(--space-4) 18px;
   overflow-x: auto;
-  max-height: 80vh;
+  max-height: 60vh;
   overflow-y: auto;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -70,8 +71,8 @@
 .neutral {
   color: var(--text);
   border-radius: 2px;
-  scroll-margin: 80px;
-  transition: box-shadow 0.2s;
+  /* Inside the panel's own scroll area: a little room around a quote scrolled into view. */
+  scroll-margin: var(--space-6);
 }
 
 .pending {
@@ -84,4 +85,39 @@
 
 .emphasised {
   box-shadow: 0 0 0 3px var(--accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pending,
+  .neutral {
+    transition: box-shadow 200ms ease-out;
+  }
+}
+
+.text:focus-visible {
+  outline-offset: -3px;
+}
+
+/* Wide layout: the panel stays in view below the review bar and fills the rest of the
+   viewport; only its text scrolls, and its header (title and legend) stays visible. */
+.sticky {
+  position: sticky;
+  top: calc(var(--app-header-height) + var(--review-bar-height) + var(--sticky-gap));
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--app-header-height) - var(--review-bar-height) - 2 * var(--sticky-gap));
+  height: calc(
+    100dvh - var(--app-header-height) - var(--review-bar-height) - 2 * var(--sticky-gap)
+  );
+  min-height: 320px;
+}
+
+.sticky .head {
+  flex: none;
+}
+
+.sticky .text {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }

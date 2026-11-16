@@ -1,9 +1,15 @@
+import { useRef } from 'react';
 import { NavLink } from 'react-router';
+import { usePublishedHeight } from '../hooks/usePublishedHeight.js';
+import { APP_HEADER_ID } from '../hooks/useStuck.js';
 import styles from './AppHeader.module.css';
 
 export function AppHeader() {
+  const ref = useRef<HTMLElement>(null);
+  // Sticky elements below the header (the review bar, the document panel) offset by its height.
+  usePublishedHeight(ref, '--app-header-height');
   return (
-    <header className={styles.header}>
+    <header ref={ref} id={APP_HEADER_ID} className={styles.header}>
       <div className={styles.inner}>
         <NavLink to="/" className={styles.brand} aria-label="Review Desk, all documents">
           <span className={styles.logo} aria-hidden="true">

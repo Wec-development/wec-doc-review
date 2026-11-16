@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  min-width: 0;
   padding: var(--space-3);
   background: var(--surface-sunken);
   border: 1px solid var(--border-subtle);
@@ -67,15 +68,26 @@
 .rowHead {
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
 }
 
 .field {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
+  /* Field names are long identifiers (median_household_income): break anywhere, never overflow. */
+  overflow-wrap: anywhere;
+}
+
+/* Badges in these narrow cards may wrap inside their row instead of running past the edge. */
+.pill {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
 }
 
 .value {
@@ -118,6 +130,7 @@
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 

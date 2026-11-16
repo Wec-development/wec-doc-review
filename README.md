@@ -82,6 +82,49 @@ docker compose down -v                   # stop and DELETE all data, uploads and
 
 Both run as a separate compose project on their own ports and volumes, so they never touch your stack's data.
 
+## Run without the source code
+
+Another developer can run a released version with **only Docker Desktop and one file**, [`docker-compose.release.yml`](docker-compose.release.yml). It's the same stack as `docker-compose.yml` (same services, health checks, volumes, ports and environment), but it pulls ready-built images from GitHub Container Registry instead of building them:
+
+- `ghcr.io/wec-development/doc-review-api`, used by the migrate, api and worker services;
+- `ghcr.io/wec-development/doc-review-web`.
+
+The API image already contains the migrations and the sample fixtures, so there are no source folders to mount.
+
+1. Install and start Docker Desktop.
+2. If the images are private, log in once with a GitHub token that has `read:packages`:
+   ```sh
+   docker login ghcr.io -u <github-user>     # paste the token when asked
+   ```
+3. Save `docker-compose.release.yml` in an empty folder and run, from that folder:
+   ```sh
+   docker compose -f docker-compose.release.yml up -d
+   ```
+4. Open <http://localhost:8080>, then **Settings**: choose the provider, paste an API key, **Test connection**, **Save settings**. The 3 sample documents then extract.
+
+**Managing it**
+
+- Everything appears in Docker Desktop → **Containers** as one group, with logs, restart and stop.
+- `docker compose -f docker-compose.release.yml down` stops it and keeps the data.
+- `down -v` also deletes the database, uploaded PDFs and the encryption key, for a fresh start.
+
+**Updating**
+
+```sh
+APP_VERSION=1.0.1 docker compose -f docker-compose.release.yml pull
+APP_VERSION=1.0.1 docker compose -f docker-compose.release.yml up -d
+```
+
+- Without `APP_VERSION` it uses `latest`.
+- Data and settings are kept across updates, and migrations run automatically on `up`.
+- The ports can be moved with `WEB_HOST_PORT`, `API_HOST_PORT` and `DB_HOST_PORT` if 8080, 3000 or 5433 are taken.
+
+**Publishing a release (maintainers):**
+
+1. `docker login ghcr.io` with a token that has `write:packages`.
+2. `pnpm release:images 1.0.0` builds both images for `linux/amd64` and `linux/arm64`, tags `1.0.0` and `latest`, and pushes them. It stops early if you're not logged in, and never prints a token.
+3. Add `--load` to build only for this machine and load the images locally, for testing: `pnpm release:images 1.0.0 --load`.
+
 ## Development
 
 Run the apps on your machine with hot reload, with only Postgres in Docker. Requirements: Node 22 (`nvm use`) and pnpm 10 (`corepack enable`).
@@ -486,7 +529,7 @@ React + Vite in [`apps/web`](apps/web/), styled with CSS Modules and the design 
 
 **What to click first.** Open <http://localhost:8080> (Docker) or <http://localhost:5173> (`pnpm dev`), and save an LLM in Settings first.
 
-**Onboarding.** On the first visit, `/` sends you once to **How it works** (`/welcome`). It explains the five steps in order: configure an LLM, upload, extraction with quoted evidence (or a gap with a reason), review (approve or correct), and new versions with carried-over reviews. Each step has a small illustration built from the app's own badges and value cards, using real fixture values. It never blocks the documents list: a "Skip — go to documents" link sits at the top, nothing auto-advances, and the header's **How it works** link reopens it at any time. Whether you've seen it is stored in `localStorage`; if storage is unavailable, there's no redirect. The entrance animations are CSS-only (transform and opacity, under 600 ms each, nothing loops) and are switched off entirely when the OS asks for reduced motion.
+**Onboarding.** On the first visit, `/` sends you once to **How it works** (`/welcome`). It explains the five steps in order: configure an LLM, upload, extraction with quoted evidence (or a gap with a reason), review (approve or correct), and new versions with carried-over reviews. Each step has a small illustration built from the app's own badges and value cards, using real fixture values. It never blocks the documents list: nothing auto-advances, the header's **Documents** link or the closing **Go to documents** button leave it, and **How it works** reopens it at any time. Whether you've seen it is stored in `localStorage`; if storage is unavailable, there's no redirect. The entrance animations are CSS-only (transform and opacity, under 600 ms each, nothing loops) and are switched off entirely when the OS asks for reduced motion.
 
 1. The **Documents** list shows the three seeded documents going _Queued → Extracting → Extracted_ without a refresh, once an LLM is saved. The cards on top total what needs review, gaps, carried-over and approved/corrected values.
 2. Open **Market report**. The _Needs review_ cards come first, then the _Gaps_ card for `median_household_income`, which shows its reason. Each value sits beside its **source quote**, and "Show in document text" scrolls to the highlighted passage in the parsed text on the right. **Approve** a value, or **Correct…** it (the value is required, the note optional). A gap can be confirmed or given a value.
@@ -515,7 +558,10 @@ React + Vite in [`apps/web`](apps/web/), styled with CSS Modules and the design 
 **Accessibility:**
 
 - every action is a real button, link or labelled input, and the whole flow works by keyboard;
+- on wide screens (≥ 900 px) the review summary bar sticks below the header, and the document text panel stays in view beside the values, with its own scroll. "Show in document text" scrolls only that panel to the quote. Sticky offsets come from the measured header and bar heights (CSS variables), and `scroll-padding-top` keeps keyboard focus from landing under them. Below 900 px the layout stacks and the bar compacts to one line;
 - the upload dialog is a modal with a focus trap: Esc closes it and focus returns to the button that opened it;
+- the documents list shows 25 documents per page, with the page in the URL (`?page=2`), so Back, refresh and links keep it. Pagination appears only above 25 documents. The summary cards and subtitle count every document. Pages are cut in the browser from the single list response; at much larger volumes, `GET /documents` would page in SQL instead;
+- **Upload PDF** accepts several PDFs at once, chosen or dropped onto the dialog. Each becomes its own document of the chosen type, titled from its file name; a single file can be given a title. Files upload one after another. The dialog shows a count ("4 PDFs selected", then "Uploading 2 of 4…") rather than listing every file; only a file with a problem gets its own row, with the reason and a remove button. Invalid files (not a PDF, over 10 MB) are flagged before anything is sent, and only failed files are retried. Uploading a _new version_ stays one file;
 - focus is always visible, and primary actions are at least 44 px;
 - a polite live region announces finished extractions and saved reviews;
 - each page has one `h1` and its own `<title>`;

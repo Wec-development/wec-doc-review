@@ -87,3 +87,31 @@
 .action {
   text-align: right;
 }
+
+/* Row actions: the shared small button, at the full 44 px touch target (this table only). */
+.actionButton {
+  min-height: var(--target);
+}
+
+/* "Review N": light amber like the pending values it opens, with the count in a pill. */
+.reviewButton {
+  border: 1px solid var(--pending-border);
+  background: var(--pending-bg);
+  color: var(--pending-text);
+}
+
+.reviewButton:hover {
+  border-color: var(--pending-text);
+  color: var(--pending-text);
+}
+
+.reviewCount {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--pending-text);
+  color: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}

@@ -271,7 +271,7 @@ describe('other states', () => {
   it('shows the extracting state and polls only while the current version is in flight', async () => {
     const extracting = makeDetail({ version: { status: 'extracting' } });
     show(extracting);
-    expect(await screen.findByRole('heading', { name: 'Extracting values…' })).toBeInTheDocument();
+    expect(await screen.findByText(/^Extracting values from v\d+…$/)).toBeInTheDocument();
     expect(detailRefetchInterval(extracting)).toBe(POLL_INTERVAL_MS);
     expect(detailRefetchInterval(invoiceV2Detail())).toBe(false);
   });
@@ -287,5 +287,49 @@ describe('other states', () => {
   it('shows not found for an unknown route', async () => {
     renderApp('/nope');
     expect(await screen.findByRole('heading', { level: 1, name: 'Not found' })).toBeInTheDocument();
+  });
+});
+
+describe('a version being extracted: progress on the left, the uploaded PDF on the right', () => {
+  it('shows the status bar, the current step, and the PDF of that version', async () => {
+    const extracting = makeDetail({ version: { status: 'extracting', versionNo: 3 } });
+    show(extracting);
+
+    expect(await screen.findByText('Extracting values from v3…')).toBeInTheDocument();
+    expect(document.querySelector('[data-sticky="review-bar"]')).not.toBeNull();
+    const steps = within(screen.getByRole('list'));
+    expect(steps.getAllByRole('listitem').map((step) => step.getAttribute('aria-current'))).toEqual(
+      [null, null, 'step', null],
+    );
+    expect(steps.getByText(/Uploaded/)).toHaveTextContent('(done)');
+    expect(steps.getByText(/Extracting values/)).toHaveTextContent('(in progress)');
+
+    // The base URL comes from configuration (same-origin /api by default).
+    const fileUrl = `/documents/${extracting.document.id}/file?version=3`;
+    expect(screen.getByTitle('Uploaded PDF, version 3').getAttribute('src')).toMatch(
+      new RegExp(`${fileUrl.replace(/[?.]/g, '\\$&')}$`),
+    );
+    expect(screen.getByRole('link', { name: /Open in new tab/ }).getAttribute('href')).toBe(
+      screen.getByTitle('Uploaded PDF, version 3').getAttribute('src'),
+    );
+  });
+
+  it('while queued after a failed attempt, says it will be retried', async () => {
+    show(
+      makeDetail({
+        version: {
+          status: 'queued',
+          versionNo: 2,
+          error: 'Attempt 1 of 3 failed, retrying: LLM rate limit reached (429)',
+        },
+      }),
+    );
+
+    expect(await screen.findByText('Waiting to extract v2…')).toBeInTheDocument();
+    const current = screen
+      .getAllByRole('listitem')
+      .find((step) => step.getAttribute('aria-current'));
+    expect(current).toHaveTextContent('Waiting for a worker');
+    expect(current).toHaveTextContent('Attempt 1 of 3 failed, retrying');
   });
 });

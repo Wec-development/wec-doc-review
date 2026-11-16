@@ -80,9 +80,7 @@ export function DocumentDetailPage() {
         <>
           <DetailHeader detail={data} onUploadVersion={() => setUploading(true)} />
           {older && <DetailReadOnly detail={data} />}
-          {!older && isInFlight(data.version.status) && (
-            <DetailExtracting status={data.version.status} />
-          )}
+          {!older && isInFlight(data.version.status) && <DetailExtracting detail={data} />}
           {!older && data.version.status === 'failed' && (
             <DetailFailed
               error={data.version.error}

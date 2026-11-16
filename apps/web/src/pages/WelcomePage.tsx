@@ -11,7 +11,8 @@ import pageStyles from './Page.module.css';
 
 /**
  * "How it works": the four steps from upload to carried-over reviews. Shown once on the first
- * visit and reachable from the header; always skippable, nothing auto-advances.
+ * visit and reachable from the header. Nothing auto-advances; the header and "Go to documents"
+ * leave it at any time.
  */
 export function WelcomePage() {
   usePageTitle('How it works');
@@ -24,11 +25,6 @@ export function WelcomePage() {
 
   return (
     <main className={pageStyles.main}>
-      <div className={styles.skipRow}>
-        <Link to="/" className={styles.skip} onClick={markOnboardingSeen}>
-          Skip — go to documents
-        </Link>
-      </div>
       <Hero animate={animate} />
       <StepFlow animate={animate} />
       <section className={styles.cta} aria-labelledby="welcome-cta-title">

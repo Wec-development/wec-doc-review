@@ -145,6 +145,10 @@ export const api = {
   retry: (documentId: string): Promise<RetryAccepted> =>
     postJson(`/documents/${documentId}/retry`, retryAcceptedSchema),
 
+  /** URL of a version's uploaded PDF, for the browser's own PDF viewer (not a fetch). */
+  fileUrl: (id: string, version?: number): string =>
+    `${BASE_URL}/documents/${id}/file${versionQuery(version)}`,
+
   getLlmSettings: (): Promise<LlmSettings> => request('/settings/llm', llmSettingsSchema),
 
   /** The key travels only in this request body; responses never contain it. */

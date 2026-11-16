@@ -48,6 +48,18 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   --target: 44px;
 
+  /* Stacking order, lowest to highest: page content < review bar < header < dialogs < toasts. */
+  --z-review-bar: 20;
+  --z-header: 30;
+  --z-dialog: 40;
+  --z-toast: 50;
+
+  /* Heights of the sticky bars, measured at runtime (ResizeObserver) and set on <html>; these
+     defaults apply before the first measurement. Sticky offsets and scroll padding use them. */
+  --app-header-height: 64px;
+  --review-bar-height: 0px;
+  --sticky-gap: var(--space-4);
+
   --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
@@ -58,9 +70,9 @@
   box-sizing: border-box;
 }
 
-/* Keyboard focus and in-page jumps stop below the sticky header instead of under it. */
+/* Keyboard focus and in-page jumps stop below the sticky header and review bar, never under them. */
 html {
-  scroll-padding-top: 80px;
+  scroll-padding-top: calc(var(--app-header-height) + var(--review-bar-height) + var(--sticky-gap));
 }
 
 html,

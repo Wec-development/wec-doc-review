@@ -8,6 +8,16 @@ import { StatusBadge } from './StatusBadge.js';
 
 const TYPE_LABELS = { invoice: 'Invoice', lease: 'Lease', market_report: 'Market report' } as const;
 
+/** "16 Nov, 15:20": short, no seconds (the full timestamp is in the detail page). */
+function formatUpdated(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 interface DocumentsTableProps {
   documents: DocumentSummary[];
   onRetry: (documentId: string) => void;
@@ -23,7 +33,7 @@ function RowAction({
     return (
       <button
         type="button"
-        className={`${buttons.secondary} ${buttons.small}`}
+        className={`${buttons.secondary} ${buttons.small} ${styles.actionButton}`}
         onClick={() => onRetry(document.id)}
         disabled={retryingId === document.id}
         aria-label={`Retry extraction of ${document.title}`}
@@ -32,15 +42,40 @@ function RowAction({
       </button>
     );
   }
-  if (isInFlight(document.status)) return <span className={styles.muted}>—</span>;
+  if (isInFlight(document.status)) {
+    return (
+      <Link
+        to={`/documents/${document.id}`}
+        className={`${buttons.outline} ${buttons.small} ${styles.actionButton}`}
+        aria-label={`View extraction progress of ${document.title}`}
+      >
+        View progress
+      </Link>
+    );
+  }
   const pending = document.progress.pending;
+  if (pending > 0) {
+    // The one thing to do on this row, in the "pending" colour of the values it leads to.
+    return (
+      <Link
+        to={`/documents/${document.id}`}
+        className={`${buttons.base} ${buttons.small} ${styles.actionButton} ${styles.reviewButton}`}
+        aria-label={`Review ${pending} values in ${document.title}`}
+      >
+        Review{' '}
+        <span className={styles.reviewCount} aria-hidden="true">
+          {pending}
+        </span>
+      </Link>
+    );
+  }
   return (
     <Link
       to={`/documents/${document.id}`}
-      className={`${buttons.outline} ${buttons.small}`}
-      aria-label={`${pending > 0 ? `Review ${pending} values in` : 'View'} ${document.title}`}
+      className={`${buttons.outline} ${buttons.small} ${styles.actionButton}`}
+      aria-label={`View ${document.title}`}
     >
-      {pending > 0 ? `Review ${pending}` : 'View'}
+      View
     </Link>
   );
 }
@@ -84,15 +119,11 @@ export function DocumentsTable({ documents, onRetry, retryingId }: DocumentsTabl
                 <Link to={`/documents/${document.id}`} className={styles.title}>
                   {document.title}
                 </Link>
-                <div className={styles.sub}>
-                  v{document.currentVersionNo} updated{' '}
-                  {new Date(document.updatedAt).toLocaleString()}
-                </div>
+                <div className={styles.sub}>Updated {formatUpdated(document.updatedAt)}</div>
               </td>
               <td className={styles.soft}>{TYPE_LABELS[document.type]}</td>
               <td>
-                <span className={styles.mono}>v{document.currentVersionNo}</span>{' '}
-                <span className={styles.muted}>of {document.currentVersionNo}</span>
+                <span className={styles.mono}>v{document.currentVersionNo}</span>
               </td>
               <td>
                 <StatusBadge status={document.status} />

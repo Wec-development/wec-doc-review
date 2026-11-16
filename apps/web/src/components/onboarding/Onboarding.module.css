@@ -1,17 +1,6 @@
 /* "How it works" page. Animations are opt-in: elements only start hidden when `.animate` is set
    (motion allowed), so reduced motion and no-JS always show the final state. */
 
-.skipRow {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--space-4);
-}
-
-.skip {
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .hero {
   max-width: 760px;
   margin-bottom: var(--space-6);
@@ -122,7 +111,7 @@
   }
 }
 
-/* ---- Motion (only with `.animate`; never on the skip link or the call to action) ---- */
+/* ---- Motion (only with `.animate`; never on the call to action) ---- */
 
 .animate.hero,
 .animate.step {

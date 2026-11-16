@@ -46,9 +46,13 @@ export function listSubtitle(totals: ListTotals): string {
   return review + inFlight;
 }
 
-/** "2 pending · 3 carried over · 0 approved" (zero carried/corrected parts are left out). */
+/**
+ * "2 pending · 1 gap · 3 carried over · 0 approved", in the detail bar's order. Zero gaps,
+ * carried and corrected parts are left out.
+ */
 export function progressLine(progress: ReviewProgress): string {
   const parts = [`${progress.pending} pending`];
+  if (progress.gaps > 0) parts.push(plural(progress.gaps, 'gap', 'gaps'));
   if (progress.carriedOver > 0) parts.push(`${progress.carriedOver} carried over`);
   parts.push(`${progress.approved} approved`);
   if (progress.corrected > 0) parts.push(`${progress.corrected} corrected`);

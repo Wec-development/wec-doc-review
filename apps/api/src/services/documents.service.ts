@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import type {
   DocumentType,
   ReviewProgress,
@@ -10,6 +11,7 @@ import {
   type DocumentRow,
   findDocument,
   findLatestVersion,
+  findVersionFilePath,
   findVersionText,
   insertDocument,
   insertQueuedJob,
@@ -27,6 +29,8 @@ import {
   listValueViews,
   type ValueView,
 } from '../repositories/read-models.repository.js';
+import { createFileResolver } from '../extraction/resolve-file.js';
+import { resolveFixturesDir } from '../fixtures-dir.js';
 import { versionFileKey } from '../storage/file-storage.js';
 import { sha256Hex } from '../uploads/pdf.js';
 import type { ServiceDeps } from './deps.js';
@@ -207,4 +211,51 @@ export async function getProgress(
 ): Promise<ReviewProgress> {
   const { version } = await resolveVersion(deps, documentId, versionNo);
   return getVersionProgress(deps.db, version.id);
+}
+
+export interface VersionFile {
+  /** Absolute path of the stored PDF. */
+  path: string;
+  /** A safe download name, e.g. "invoice-meridian-v3.pdf". */
+  fileName: string;
+  size: number;
+}
+
+/** Lowercase letters, digits and dashes only, so it is safe in a Content-Disposition header. */
+function safeFileName(title: string, versionNo: number): string {
+  const slug = title
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `${slug || 'document'}-v${versionNo}.pdf`;
+}
+
+/**
+ * The PDF of the selected version (default: current), for viewing in the browser. Uploads come
+ * from storage, seeded documents from fixtures/. 404 when the document, the version or the file
+ * is missing.
+ */
+export async function getVersionFile(
+  deps: ServiceDeps,
+  documentId: string,
+  versionNo: number | undefined,
+): Promise<VersionFile> {
+  const { document, version } = await resolveVersion(deps, documentId, versionNo);
+  const resolveFile = createFileResolver(
+    deps.storage,
+    resolveFixturesDir({ FIXTURES_DIR: deps.fixturesDir }),
+  );
+  const storedPath = await findVersionFilePath(deps.db, version.id);
+  const filePath = storedPath === null ? null : resolveFile(storedPath);
+  const info = filePath === null ? null : await stat(filePath).catch(() => null);
+  if (filePath === null || !info?.isFile()) {
+    throw new NotFoundError(`The PDF of version ${version.versionNo} is not available`);
+  }
+  return {
+    path: filePath,
+    fileName: safeFileName(document.title, version.versionNo),
+    size: info.size,
+  };
 }

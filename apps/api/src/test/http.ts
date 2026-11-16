@@ -8,6 +8,7 @@ import { expect } from 'vitest';
 import { type AppDeps, type AppOptions, buildApp } from '../app.js';
 import type { Database } from '../db/client.js';
 import type { ListModels } from '../services/settings.service.js';
+import { FIXTURES_DIR } from './llm.js';
 import { type FileStorage, LocalDiskStorage } from '../storage/file-storage.js';
 
 /** A fixed encryption key for tests (production resolves one from env or SECRETS_DIR). */
@@ -38,6 +39,7 @@ export async function createTestApp(
     db,
     storage,
     encryptionKey: input.encryptionKey ?? TEST_ENCRYPTION_KEY,
+    fixturesDir: FIXTURES_DIR,
     options: input.options,
     ...(input.listModels ? { listModels: input.listModels } : {}),
     ...(input.logger !== undefined ? { logger: input.logger } : {}),

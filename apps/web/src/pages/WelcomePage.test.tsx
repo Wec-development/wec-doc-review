@@ -87,7 +87,7 @@ describe('first visit', () => {
 });
 
 describe('leaving and reopening the onboarding', () => {
-  it.each(['Skip — go to documents', 'Go to documents'])(
+  it.each(['Go to documents'])(
     '"%s" goes to the documents and marks the onboarding as seen',
     async (name) => {
       resetOnboardingSeen();
@@ -111,16 +111,17 @@ describe('leaving and reopening the onboarding', () => {
     await expectWelcomePage();
   });
 
-  it('puts the skip link before the steps, so it is reached first by keyboard', async () => {
+  it('has no skip link; Go to documents is the first thing focused in the page', async () => {
     const { user } = renderApp('/welcome');
     await expectWelcomePage();
     const main = screen.getByRole('main');
 
-    // Header links come first; the first thing focused inside the page is the skip link.
+    // Header links come first; the illustrations hold nothing focusable, so the next stop in the
+    // page is the call to action at the end.
     while (!main.contains(document.activeElement)) await user.tab();
 
     expect(document.activeElement).toBe(
-      within(main).getByRole('link', { name: 'Skip — go to documents' }),
+      within(main).getByRole('link', { name: 'Go to documents' }),
     );
   });
 });

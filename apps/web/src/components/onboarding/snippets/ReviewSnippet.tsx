@@ -8,7 +8,7 @@ export function ReviewSnippet({ play }: { play: boolean }) {
       <div className={`${styles.row} ${styles.pendingRow}`}>
         <div className={styles.rowHead}>
           <span className={styles.field}>vendor_name</span>
-          <span className={`${badges.badge} ${badges.pending}`}>Pending</span>
+          <span className={`${badges.badge} ${styles.pill} ${badges.pending}`}>Pending</span>
         </div>
         <span className={styles.value}>MERIDIAN OFFICE SUPPLIES LLC</span>
         <span className={styles.quote}>
@@ -22,7 +22,7 @@ export function ReviewSnippet({ play }: { play: boolean }) {
       <div className={`${styles.row} ${styles.appearLate}`}>
         <div className={styles.rowHead}>
           <span className={styles.field}>vendor_name</span>
-          <span className={`${badges.badge} ${badges.corrected}`}>Corrected</span>
+          <span className={`${badges.badge} ${styles.pill} ${badges.corrected}`}>Corrected</span>
         </div>
         <span className={styles.value}>Meridian Office Supplies, LLC</span>
         <span className={styles.corrected}>

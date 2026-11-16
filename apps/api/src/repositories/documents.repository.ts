@@ -102,6 +102,15 @@ export async function findVersionText(db: Executor, versionId: string): Promise<
   return row?.parsedText ?? null;
 }
 
+/** The stored file of a version: a storage key, or `fixtures/...` for seeded documents. */
+export async function findVersionFilePath(db: Executor, versionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ filePath: documentVersions.filePath })
+    .from(documentVersions)
+    .where(eq(documentVersions.id, versionId));
+  return row?.filePath ?? null;
+}
+
 export async function listVersions(db: Executor, documentId: string): Promise<VersionRow[]> {
   return db
     .select(versionColumns)

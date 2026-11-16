@@ -26,22 +26,48 @@
   font-size: 14px;
 }
 
-.counts {
+.filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
+  gap: var(--space-2);
+}
+
+/* A status count that is also a filter: outlined pill; pressed = filled with its status tone. */
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.filter:hover {
+  border-color: var(--border-strong);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.all .dot {
+  display: none;
 }
 
 .pending {
   color: var(--pending-text);
 }
 
-.gap {
+.gaps {
   color: var(--gap-text);
 }
 
@@ -55,4 +81,73 @@
 
 .corrected {
   color: var(--corrected-text);
+}
+
+.active {
+  border-color: currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.all.active {
+  background: var(--text);
+  border-color: var(--text);
+  box-shadow: none;
+  color: var(--surface);
+}
+
+.pending.active {
+  background: var(--pending-bg);
+}
+
+.gaps.active {
+  background: var(--gap-bg);
+}
+
+.carried.active {
+  background: var(--carried-bg);
+}
+
+.approved.active {
+  background: var(--approved-bg);
+}
+
+.corrected.active {
+  background: var(--corrected-bg);
+}
+
+/* Narrow screens: two compact rows (the message on one line, then the filters, which scroll
+   sideways if they do not fit). */
+@media (max-width: 899px) {
+  .attention,
+  .calm {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    padding: 10px 14px;
+  }
+
+  .message {
+    flex: none;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .detail {
+    display: none;
+  }
+
+  .filters {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .filter {
+    min-height: 32px;
+    padding: 0 10px;
+  }
 }

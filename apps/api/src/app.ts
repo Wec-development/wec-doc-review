@@ -23,6 +23,8 @@ export interface AppOptions {
 export interface AppDeps {
   db: Database;
   storage: FileStorage;
+  /** Where seeded fixture PDFs live (defaults to the repo's fixtures/). */
+  fixturesDir?: string;
   /** Encrypts stored LLM API keys (src/crypto/encryption-key.ts); never stored in the DB. */
   encryptionKey: Buffer;
   options?: Partial<AppOptions>;
@@ -75,7 +77,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
   });
 
-  const serviceDeps = { db, storage };
+  const serviceDeps = { db, storage, fixturesDir: deps.fixturesDir };
   registerDocumentRoutes(app, serviceDeps);
   registerValueRoutes(app, serviceDeps);
   registerSettingsRoutes(app, {

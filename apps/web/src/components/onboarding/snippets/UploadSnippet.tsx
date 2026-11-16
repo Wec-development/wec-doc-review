@@ -13,7 +13,7 @@ export function UploadSnippet({ play }: { play: boolean }) {
       <div className={`${styles.chips} ${styles.appear}`}>
         <span className={styles.chip}>invoice-001.pdf</span>
         <span className={styles.chip}>Invoice</span>
-        <span className={`${badges.badge} ${badges.queued}`}>
+        <span className={`${badges.badge} ${styles.pill} ${badges.queued}`}>
           <span className={badges.dot} />
           Queued
         </span>

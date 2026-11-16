@@ -2,11 +2,20 @@ import type { DocumentType } from '@doc-review/shared';
 import { type FormEvent, useRef, useState } from 'react';
 import { useUploadDocument, useUploadVersion } from '../api/queries.js';
 import { useFocusTrap } from '../hooks/useFocusTrap.js';
-import { formatBytes, uploadErrorMessage, validatePdf } from '../lib/upload.js';
+import {
+  addFiles,
+  blockingProblem,
+  submitLabel,
+  type UploadItem,
+  uploadErrorMessage,
+} from '../lib/upload.js';
 import buttons from '../styles/buttons.module.css';
 import { useAnnounce } from './Announcer.js';
+import { FileDropZone } from './FileDropZone.js';
 import { NewDocumentFields } from './NewDocumentFields.js';
 import styles from './UploadDialog.module.css';
+import { UploadDialogHeader } from './UploadDialogHeader.js';
+import { UploadFileList } from './UploadFileList.js';
 
 export type UploadMode =
   { kind: 'document' } | { kind: 'version'; documentId: string; title: string };
@@ -16,7 +25,12 @@ interface UploadDialogProps {
   onClose: () => void;
 }
 
-/** Upload a new document, or a new version of one (Upload.dc.html). */
+const isPending = (item: UploadItem) => item.status !== 'uploaded';
+
+/**
+ * Upload new documents (one or several PDFs, each its own document) or a new version of one
+ * document (a single PDF). Files upload one after another; each shows its own status.
+ */
 export function UploadDialog({ mode, onClose }: UploadDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
   useFocusTrap(dialogRef, onClose);
@@ -25,26 +39,63 @@ export function UploadDialog({ mode, onClose }: UploadDialogProps) {
   const uploadVersion = useUploadVersion(mode.kind === 'version' ? mode.documentId : '');
   const [type, setType] = useState<DocumentType>('invoice');
   const [title, setTitle] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [clientError, setClientError] = useState<string | null>(null);
+  const [items, setItems] = useState<UploadItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const nextId = useRef(0);
 
-  const mutation = mode.kind === 'version' ? uploadVersion : uploadDocument;
-  const error = clientError ?? (mutation.error ? uploadErrorMessage(mutation.error) : null);
-  const heading = mode.kind === 'version' ? 'Upload a new version' : 'Upload a document';
+  const multiple = mode.kind === 'document';
+  const pending = items.filter(isPending);
+  const single = items.length <= 1;
+  const update = (id: string, change: Partial<UploadItem>) =>
+    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...change } : item)));
+
+  const onFiles = (files: File[]) => {
+    setItems((current) =>
+      addFiles(current, files, { multiple, nextId: () => `file-${(nextId.current += 1)}` }),
+    );
+    setError(null);
+  };
+
+  const upload = (file: File) =>
+    mode.kind === 'version'
+      ? uploadVersion.mutateAsync(file)
+      : uploadDocument.mutateAsync({ type, title: (single && title.trim()) || undefined, file });
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const problem = validatePdf(file);
-    setClientError(problem);
-    if (problem || !file) return;
-    try {
-      if (mode.kind === 'version') await uploadVersion.mutateAsync(file);
-      else await uploadDocument.mutateAsync({ type, title: title.trim() || undefined, file });
-      announce('Uploaded — extraction started');
-      onClose();
-    } catch {
-      // The error is shown inline from the mutation state.
+    const problem = blockingProblem(pending);
+    setError(problem);
+    if (problem) return;
+    setBusy(true);
+    const failures: string[] = [];
+    for (const item of pending) {
+      update(item.id, { status: 'uploading', message: null });
+      try {
+        await upload(item.file);
+        update(item.id, { status: 'uploaded', message: null });
+      } catch (uploadError) {
+        const message = uploadErrorMessage(uploadError);
+        failures.push(message);
+        update(item.id, { status: 'failed', message });
+      }
     }
+    setBusy(false);
+    const uploaded = pending.length - failures.length;
+    if (failures.length === 0) {
+      announce(
+        uploaded === 1
+          ? 'Uploaded — extraction started'
+          : `${uploaded} documents uploaded — extraction started`,
+      );
+      onClose();
+      return;
+    }
+    setError(
+      pending.length === 1
+        ? (failures[0] ?? null)
+        : `${failures.length} of ${pending.length} uploads failed. ${uploaded} uploaded; fix or remove the others and try again.`,
+    );
   };
 
   return (
@@ -55,76 +106,50 @@ export function UploadDialog({ mode, onClose }: UploadDialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="upload-title"
+        aria-describedby="upload-intro"
       >
-        <div className={styles.head}>
-          <h2 id="upload-title" className={styles.title}>
-            {heading}
-          </h2>
-          <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
+        <UploadDialogHeader mode={mode} onClose={onClose} />
         <form className={styles.form} onSubmit={onSubmit} noValidate>
-          {mode.kind === 'version' ? (
-            <p className={styles.hint}>
-              New version of <strong>{mode.title}</strong>. Unchanged values keep their review.
-            </p>
-          ) : (
-            <NewDocumentFields
-              type={type}
-              title={title}
-              onTypeChange={setType}
-              onTitleChange={setTitle}
-            />
-          )}
-          <div className={styles.field}>
-            <label htmlFor="doc-file">
-              PDF file <span className={styles.required}>*</span>
-            </label>
-            <input
-              id="doc-file"
-              type="file"
-              accept="application/pdf,.pdf"
-              aria-describedby="doc-file-hint"
-              aria-invalid={error !== null}
-              onChange={(event) => {
-                setFile(event.target.files?.[0] ?? null);
-                setClientError(null);
-                mutation.reset();
+          <div className={styles.body}>
+            {mode.kind === 'document' && (
+              <NewDocumentFields
+                type={type}
+                title={title}
+                showTitle={single}
+                onTypeChange={setType}
+                onTitleChange={setTitle}
+              />
+            )}
+            <FileDropZone multiple={multiple} invalid={error !== null} onFiles={onFiles} />
+            <UploadFileList
+              items={items}
+              busy={busy}
+              onRemove={(id) => {
+                setItems((current) => current.filter((item) => item.id !== id));
+                setError(null);
+              }}
+              onClear={() => {
+                setItems([]);
+                setError(null);
               }}
             />
-            <div id="doc-file-hint" className={styles.hintSmall}>
-              PDF only · up to 10 MB{file ? ` · ${file.name} (${formatBytes(file.size)})` : ''}
-            </div>
             {error && (
               <p className={styles.error} role="alert">
                 {error}
               </p>
             )}
           </div>
-          <p className={styles.hint}>
-            Upload returns immediately. Extraction runs in the background and the status updates in
-            the list.
-          </p>
-          <div className={styles.actions}>
-            <button type="button" className={buttons.secondary} onClick={onClose}>
+          <footer className={styles.actions}>
+            <p className={styles.footnote}>
+              Upload returns immediately; status updates in the list.
+            </p>
+            <button type="button" className={buttons.secondary} onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="submit" className={buttons.primary} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Uploading…' : 'Upload and extract'}
+            <button type="submit" className={buttons.primary} disabled={busy}>
+              {busy ? 'Uploading…' : submitLabel(pending.length)}
             </button>
-          </div>
+          </footer>
         </form>
       </section>
     </div>

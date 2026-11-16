@@ -11,17 +11,25 @@ interface ValueSectionsProps {
   baselineVersionNo: number | null;
   display: (field: string) => ValueDisplay;
   actions: ReviewActions;
+  /** Shown when there is nothing to list (e.g. a status filter that matches no values). */
+  emptyMessage?: string;
 }
 
 /** The left column, in the order a reviewer works: needs review, gaps, reviewed, carried over. */
-export function ValueSections({ groups, baselineVersionNo, display, actions }: ValueSectionsProps) {
+export function ValueSections({
+  groups,
+  baselineVersionNo,
+  display,
+  actions,
+  emptyMessage = 'No values were extracted for this version.',
+}: ValueSectionsProps) {
   const { needsReview, gaps, reviewed, carried } = groups;
   const evidenceChanged = needsReview.some((value) => value.comparison === 'changed');
   const nothing = needsReview.length + gaps.length + reviewed.length + carried.length === 0;
 
   return (
-    <section className={styles.valuesColumn} aria-label="Extracted values">
-      {nothing && <p className={styles.subtitle}>No values were extracted for this version.</p>}
+    <section id="extracted-values" className={styles.valuesColumn} aria-label="Extracted values">
+      {nothing && <p className={styles.subtitle}>{emptyMessage}</p>}
       {needsReview.length > 0 && (
         <>
           <h2 className={styles.sectionTitle}>

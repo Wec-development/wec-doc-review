@@ -1,0 +1,31 @@
+/* Marks where the bar starts; once it scrolls under the header, the bar is stuck. */
+.sentinel {
+  height: 1px;
+  margin-bottom: -1px;
+}
+
+/* Sticks directly below the app header. The page background behind it hides values scrolling
+   underneath; nothing inside changes size when stuck, so there is no layout shift. */
+.bar {
+  position: sticky;
+  top: var(--app-header-height);
+  z-index: var(--z-review-bar);
+  margin: 0 calc(-1 * var(--space-2)) 20px;
+  padding: var(--space-2) var(--space-2) 0;
+  background: var(--bg);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+
+.bar > section {
+  margin-bottom: 0;
+}
+
+/* Stuck: a subtle shadow separates the bar from the content scrolling under it. */
+.stuck {
+  box-shadow: 0 8px 12px -10px rgba(0, 0, 0, 0.25);
+}
+
+/* Only the shadow animates (never size or position), and only without reduced motion. */
+.animated {
+  transition: box-shadow 150ms ease-out;
+}

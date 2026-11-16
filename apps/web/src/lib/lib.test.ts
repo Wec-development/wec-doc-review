@@ -8,6 +8,9 @@ import {
   makeValue,
 } from '../test/factories.js';
 import { formatValue } from './format-value.js';
+import { pageNumbers, paginate, parsePage } from './pagination.js';
+import { filterValues, STATUS_FILTERS } from './status-filter.js';
+import { addFiles, blockingProblem, MAX_UPLOAD_BYTES, submitLabel } from './upload.js';
 import { countAwaitingReview, groupValues } from './group-values.js';
 import { highlightSegments, lineOfOffset } from './highlight.js';
 import { isInFlight, reviewMeta, statusMeta } from './status.js';
@@ -180,8 +183,129 @@ describe('list summary', () => {
   });
 
   it('writes the progress line', () => {
+    expect(progressLine(makeProgress({ pending: 2, gaps: 1, carriedOver: 3 }))).toBe(
+      '2 pending · 1 gap · 3 carried over · 0 approved',
+    );
     expect(progressLine(makeProgress({ pending: 2, carriedOver: 3 }))).toBe(
       '2 pending · 3 carried over · 0 approved',
     );
+  });
+});
+
+describe('multi-file upload helpers', () => {
+  const pdfFile = (name: string, size = 10) => {
+    const file = new File(['%PDF-1.4'], name, { type: 'application/pdf', lastModified: 1 });
+    Object.defineProperty(file, 'size', { value: size });
+    return file;
+  };
+  let id = 0;
+  const nextId = () => `f${(id += 1)}`;
+
+  it('validates each added file and skips duplicates', () => {
+    const big = pdfFile('big.pdf', MAX_UPLOAD_BYTES + 1);
+    const items = addFiles([], [pdfFile('a.pdf'), big, pdfFile('a.pdf')], {
+      multiple: true,
+      nextId,
+    });
+    expect(items.map((item) => [item.file.name, item.status, item.message])).toEqual([
+      ['a.pdf', 'ready', null],
+      ['big.pdf', 'invalid', 'File too large — the limit is 10 MB.'],
+    ]);
+  });
+
+  it('replaces the file in single-file mode (new version)', () => {
+    const first = addFiles([], [pdfFile('v2.pdf')], { multiple: false, nextId });
+    const second = addFiles(first, [pdfFile('v3.pdf'), pdfFile('v4.pdf')], {
+      multiple: false,
+      nextId,
+    });
+    expect(second.map((item) => item.file.name)).toEqual(['v3.pdf']);
+  });
+
+  it('explains what blocks the upload', () => {
+    expect(blockingProblem([])).toBe('Choose a PDF file to upload.');
+    const ok = addFiles([], [pdfFile('a.pdf')], { multiple: true, nextId });
+    expect(blockingProblem(ok)).toBeNull();
+    const text = new File(['x'], 'x.txt', { type: 'text/plain' });
+    const one = addFiles([], [text], { multiple: true, nextId });
+    expect(blockingProblem(one)).toBe('Only PDF files are supported.');
+    const two = addFiles(ok, [text, new File(['y'], 'y.txt', { type: 'text/plain' })], {
+      multiple: true,
+      nextId,
+    });
+    expect(blockingProblem(two)).toMatch(/^2 files can't be uploaded/);
+  });
+
+  it('labels the submit button by how many documents will be created', () => {
+    expect(submitLabel(0)).toBe('Upload and extract');
+    expect(submitLabel(1)).toBe('Upload and extract');
+    expect(submitLabel(4)).toBe('Upload 4 documents');
+  });
+});
+
+describe('status filters', () => {
+  const values = [
+    makeValue({ field: 'a' }),
+    makeGap({ field: 'b' }),
+    makeGap({ field: 'c', reviewState: 'approved' }),
+    makeValue({ field: 'd', reviewState: 'approved' }),
+    makeValue({ field: 'e', reviewState: 'corrected' }),
+    makeValue({ field: 'f', reviewState: 'carried_over' }),
+  ];
+  const fields = (filter: Parameters<typeof filterValues>[1]) =>
+    filterValues(values, filter).map((value) => value.field);
+
+  it('match the way the API counts: pending includes pending gaps; gaps are any state', () => {
+    expect(fields('all')).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    expect(fields('pending')).toEqual(['a', 'b']);
+    expect(fields('gaps')).toEqual(['b', 'c']);
+    expect(fields('approved')).toEqual(['c', 'd']);
+    expect(fields('corrected')).toEqual(['e']);
+    expect(fields('carried')).toEqual(['f']);
+  });
+
+  it('label each button with its count', () => {
+    const progress = makeProgress({ pending: 1, gaps: 1, total: 6 });
+    expect(STATUS_FILTERS.map((option) => option.label(option.count(progress)))).toEqual([
+      'All 6',
+      '1 pending',
+      '1 gap',
+      '0 carried over',
+      '0 approved',
+      '0 corrected',
+    ]);
+  });
+});
+
+describe('pagination', () => {
+  const items = Array.from({ length: 60 }, (_, index) => index + 1);
+
+  it('reads ?page= leniently', () => {
+    expect([null, '', '0', '-2', '1.5', 'abc', '3'].map(parsePage)).toEqual([1, 1, 1, 1, 1, 1, 3]);
+  });
+
+  it('slices a page and reports what is shown', () => {
+    expect(paginate(items, 1, 25)).toMatchObject({
+      page: 1,
+      pageCount: 3,
+      from: 1,
+      to: 25,
+      total: 60,
+    });
+    const last = paginate(items, 3, 25);
+    expect(last).toMatchObject({ page: 3, from: 51, to: 60 });
+    expect(last.items).toHaveLength(10);
+  });
+
+  it('shows the last page for a page past the end, and handles an empty list', () => {
+    expect(paginate(items, 99, 25).page).toBe(3);
+    expect(paginate([], 1, 25)).toMatchObject({ page: 1, pageCount: 1, from: 0, to: 0, total: 0 });
+  });
+
+  it('lists page numbers with gaps, never hiding a single page behind …', () => {
+    expect(pageNumbers(1, 3)).toEqual([1, 2, 3]);
+    expect(pageNumbers(5, 12)).toEqual([1, 'gap', 4, 5, 6, 'gap', 12]);
+    expect(pageNumbers(3, 12)).toEqual([1, 2, 3, 4, 'gap', 12]);
+    expect(pageNumbers(12, 12)).toEqual([1, 'gap', 11, 12]);
   });
 });

@@ -9,6 +9,7 @@ afterEach(() => {
 
 // jsdom has no layout engine; scrolling a highlight into view is a no-op in tests.
 Element.prototype.scrollIntoView = function scrollIntoView() {};
+Element.prototype.scrollTo = function scrollTo() {};
 
 // Most tests start on the documents list; onboarding tests reset this to simulate a first visit.
 beforeEach(() => {

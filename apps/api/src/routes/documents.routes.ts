@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 import { createDocumentFieldsSchema } from '@doc-review/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -7,6 +8,7 @@ import {
   createVersion,
   getDocument,
   getProgress,
+  getVersionFile,
   listDocuments,
   retryVersion,
 } from '../services/documents.service.js';
@@ -53,6 +55,20 @@ export function registerDocumentRoutes(app: FastifyInstance, deps: ServiceDeps):
     const { id } = documentParamsSchema.parse(request.params);
     const { version } = versionQuerySchema.parse(request.query);
     return getProgress(deps, id, version);
+  });
+
+  // The uploaded PDF itself, shown inline by the browser's PDF viewer (read-only).
+  app.get('/documents/:id/file', async (request, reply) => {
+    const { id } = documentParamsSchema.parse(request.params);
+    const { version } = versionQuerySchema.parse(request.query);
+    const file = await getVersionFile(deps, id, version);
+    return reply
+      .type('application/pdf')
+      .header('content-length', file.size)
+      .header('content-disposition', `inline; filename="${file.fileName}"`)
+      .header('x-content-type-options', 'nosniff')
+      .header('cache-control', 'private, no-cache')
+      .send(createReadStream(file.path));
   });
 
   app.post('/documents/:id/retry', async (request, reply) => {

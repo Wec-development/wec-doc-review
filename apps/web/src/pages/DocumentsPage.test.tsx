@@ -52,7 +52,20 @@ describe('DocumentsPage', () => {
     expect(
       rowOf('Invoice').getByRole('link', { name: /Review 2 values in Invoice/ }),
     ).toHaveTextContent('Review 2');
+    // The one action per row: the amber "Review N" when values wait for review.
+    expect(
+      rowOf('Invoice').getByRole('link', { name: /Review 2 values in Invoice/ }).className,
+    ).toMatch(/reviewButton/);
+    expect(rowOf('Invoice').getByText('v2')).toBeInTheDocument();
+    expect(rowOf('Invoice').queryByText(/of 2/)).not.toBeInTheDocument();
+    expect(rowOf('Invoice').getByText(/^Updated /)).toBeInTheDocument();
     expect(rowOf('Lease').getByText('Queued')).toBeInTheDocument();
+    expect(
+      rowOf('Lease').getByRole('link', { name: 'View extraction progress of Lease' }),
+    ).toHaveTextContent('View progress');
+    expect(
+      rowOf('Report').getByRole('link', { name: 'View extraction progress of Report' }),
+    ).toBeInTheDocument();
     expect(rowOf('Report').getByText('Extracting')).toBeInTheDocument();
     expect(rowOf('Report').getByText('Values appear when extraction finishes')).toBeInTheDocument();
     expect(rowOf('Broken').getByText('Failed')).toBeInTheDocument();
@@ -147,5 +160,84 @@ describe('list polling', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3));
     expect(api.listDocuments.mock.calls.length).toBe(callsWhenSettled);
+  });
+
+  it('counts gaps in the row, outlines View when nothing is pending, and explains the review card', async () => {
+    api.listDocuments.mockResolvedValue({
+      documents: [
+        makeSummary({
+          title: 'Report',
+          progress: makeProgress({ pending: 5, gaps: 2, total: 5 }),
+        }),
+        makeSummary({
+          title: 'Lease',
+          progress: makeProgress({ pending: 0, approved: 5, total: 5 }),
+        }),
+        makeSummary({
+          title: 'Invoice',
+          progress: makeProgress({ pending: 1, approved: 4, total: 5 }),
+        }),
+      ],
+    });
+
+    renderApp('/');
+
+    await screen.findByRole('link', { name: 'Report' });
+    expect(rowOf('Report').getByText('5 pending · 2 gaps · 0 approved')).toBeInTheDocument();
+    const view = rowOf('Lease').getByRole('link', { name: 'View Lease' });
+    expect(view.className).toMatch(/outline/);
+    expect(view.className).not.toMatch(/reviewButton/);
+    const cards = within(screen.getByText('Values to review').closest('dl') as HTMLElement);
+    expect(cards.getByText('Values to review')).toBeInTheDocument();
+    expect(cards.getByText('in 2 documents')).toBeInTheDocument();
+  });
+
+  describe('pagination (25 documents per page)', () => {
+    const manyDocuments = (count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        makeSummary({
+          title: `Document ${String(index + 1).padStart(2, '0')}`,
+          progress: makeProgress({ pending: 1, total: 1 }),
+        }),
+      );
+    const tableRows = () => screen.getAllByRole('row').slice(1); // without the header row
+
+    it('shows 25 at a time with page links, while the totals still count every document', async () => {
+      api.listDocuments.mockResolvedValue({ documents: manyDocuments(60) });
+      const { user } = renderApp('/');
+
+      await screen.findByRole('link', { name: 'Document 01' });
+      expect(tableRows()).toHaveLength(25);
+      const pages = within(screen.getByRole('navigation', { name: 'Documents pages' }));
+      expect(pages.getByText('Showing 1–25 of 60')).toBeInTheDocument();
+      expect(pages.getByRole('link', { name: 'Page 1' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByText('60 values need review across 60 documents.')).toBeInTheDocument();
+
+      await user.click(pages.getByRole('link', { name: /Next/ }));
+      expect(await screen.findByRole('link', { name: 'Document 26' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Document 01' })).not.toBeInTheDocument();
+      expect(pages.getByText('Showing 26–50 of 60')).toBeInTheDocument();
+
+      await user.click(pages.getByRole('link', { name: 'Page 3' }));
+      expect(await screen.findByRole('link', { name: 'Document 60' })).toBeInTheDocument();
+      expect(tableRows()).toHaveLength(10);
+      expect(pages.getByText('Next')).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('opens the page in the URL, and the last page for one past the end', async () => {
+      api.listDocuments.mockResolvedValue({ documents: manyDocuments(30) });
+      renderApp('/?page=7');
+
+      expect(await screen.findByRole('link', { name: 'Document 26' })).toBeInTheDocument();
+      expect(screen.getByText('Showing 26–30 of 30')).toBeInTheDocument();
+    });
+
+    it('shows no pagination when every document fits on one page', async () => {
+      api.listDocuments.mockResolvedValue({ documents: manyDocuments(25) });
+      renderApp('/');
+
+      await screen.findByRole('link', { name: 'Document 25' });
+      expect(screen.queryByRole('navigation', { name: 'Documents pages' })).not.toBeInTheDocument();
+    });
   });
 });
