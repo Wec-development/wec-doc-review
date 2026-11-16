@@ -28,8 +28,12 @@ interface Schema<T> {
   safeParse(input: unknown): { success: true; data: T } | { success: false };
 }
 
-/** The API's base URL (no secrets live in the web app). */
-const BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+/**
+ * The API's base URL. Same-origin `/api` by default: nginx (Docker) and the Vite dev server both
+ * proxy it to the API, so there is no CORS and no build-time URL. VITE_API_URL overrides it,
+ * e.g. to point a dev build at another API. No secrets live in the web app.
+ */
+const BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 export type ApiErrorCode = ErrorCode | 'NETWORK_ERROR' | 'INVALID_RESPONSE';
 

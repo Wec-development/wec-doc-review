@@ -1,9 +1,18 @@
-import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EncryptionKeyError, resolveEncryptionKey } from './encryption-key.js';
+
+const run = promisify(execFile);
+const API_DIR = fileURLToPath(new URL('../../', import.meta.url));
+const RESOLVE_KEY_SCRIPT = fileURLToPath(
+  new URL('../../test/support/resolve-key.ts', import.meta.url),
+);
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -68,4 +77,28 @@ describe('resolveEncryptionKey', () => {
       /Cannot read the encryption key/,
     );
   });
+
+  it('gives concurrent first starts (api and worker) one shared key, never two', async () => {
+    const dir = path.join(tempDir(), 'secrets');
+    const processes = 8;
+    // Far enough ahead for every process to have started and be waiting at the barrier.
+    const startAt = String(Date.now() + 4000);
+
+    // Real processes started together, like the api and worker containers on first `up`.
+    const fingerprints = await Promise.all(
+      Array.from({ length: processes }, async () => {
+        const { stdout } = await run(
+          process.execPath,
+          ['--import', 'tsx', RESOLVE_KEY_SCRIPT, dir, startAt],
+          { cwd: API_DIR },
+        );
+        return stdout.trim();
+      }),
+    );
+
+    expect(new Set(fingerprints).size).toBe(1);
+    const onDisk = resolveEncryptionKey({ secretsDir: dir });
+    expect(fingerprints[0]).toBe(createHash('sha256').update(onDisk).digest('hex'));
+    expect(statSync(path.join(dir, 'encryption.key')).mode & 0o777).toBe(0o600);
+  }, 30_000);
 });

@@ -16,7 +16,11 @@ const app = buildApp({
   db: createDatabase(pool),
   encryptionKey,
   storage: new LocalDiskStorage(config.STORAGE_DIR),
-  options: { webOrigin: config.WEB_ORIGIN, maxUploadMb: config.MAX_UPLOAD_MB },
+  options: {
+    webOrigin: config.WEB_ORIGIN,
+    maxUploadMb: config.MAX_UPLOAD_MB,
+    trustProxy: config.TRUST_PROXY,
+  },
 });
 
 async function shutdown(signal: string): Promise<void> {

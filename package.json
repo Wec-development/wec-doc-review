@@ -23,7 +23,13 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:migrate": "pnpm --filter @doc-review/shared build && pnpm --filter @doc-review/api db:migrate",
-    "db:seed": "pnpm --filter @doc-review/shared build && pnpm --filter @doc-review/api db:seed"
+    "db:seed": "pnpm --filter @doc-review/shared build && pnpm --filter @doc-review/api db:seed",
+    "docker:up": "docker compose up -d --build --wait",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v && docker compose up -d --build --wait",
+    "docker:logs": "docker compose logs -f api worker",
+    "docker:smoke": "scripts/smoke.sh",
+    "docker:restart-test": "scripts/restart-test.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

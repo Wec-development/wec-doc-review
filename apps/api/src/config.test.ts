@@ -33,3 +33,11 @@ describe('loadConfig: secrets', () => {
     });
   });
 });
+
+describe('loadConfig: reverse proxy', () => {
+  it('trusts X-Forwarded-For only when TRUST_PROXY=true', () => {
+    expect(loadConfig({}).TRUST_PROXY).toBe(false);
+    expect(loadConfig({ TRUST_PROXY: 'true' }).TRUST_PROXY).toBe(true);
+    expect(() => loadConfig({ TRUST_PROXY: 'yes' })).toThrow();
+  });
+});

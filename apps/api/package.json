@@ -4,6 +4,10 @@
   "private": true,
   "description": "HTTP API and extraction worker. Postgres is the system of record.",
   "type": "module",
+  "files": [
+    "dist",
+    "drizzle"
+  ],
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
