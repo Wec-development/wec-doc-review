@@ -17,7 +17,7 @@ pnpm db:seed                # insert version 1 of the 3 fixture documents (safe 
 pnpm dev                    # API on :3000, extraction worker, web on :5173
 ```
 
-The worker uses a deterministic fake extractor until the LLM extractor lands (`EXTRACTOR=fake`), so seeded documents move from `queued` to `extracted` within a couple of seconds.
+With `LLM_API_KEY` and `LLM_MODEL` set in `.env`, the worker extracts with the LLM (see [Extraction](#extraction)). Without a key it uses a deterministic fake extractor, so the app still runs and seeded documents move from `queued` to `extracted` within a couple of seconds.
 
 Check the API: <http://localhost:3000/health>
 
@@ -25,19 +25,20 @@ _TODO: once the api and web services are in `docker-compose.yml`, `docker compos
 
 ## Scripts
 
-| Command                                     | What it does                                                                                                            |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                                  | Build shared types, run the API, the worker and the web app in dev                                                      |
-| `pnpm --filter @doc-review/api worker:dev`  | Run only the extraction worker (watch mode); `worker` runs the built one                                                |
-| `pnpm build`                                | Build every package                                                                                                     |
-| `pnpm typecheck`                            | Type-check every package                                                                                                |
-| `pnpm lint`                                 | ESLint across the repo                                                                                                  |
-| `pnpm format`                               | Format with Prettier                                                                                                    |
-| `pnpm test`                                 | Run all tests. API tests need Postgres up; they create and migrate a separate `app_test` database and never touch `app` |
-| `pnpm db:up` / `down`                       | Start / stop Postgres                                                                                                   |
-| `pnpm db:migrate`                           | Apply SQL migrations from `apps/api/drizzle/`                                                                           |
-| `pnpm db:seed`                              | Seed version 1 of each fixture document plus a queued job                                                               |
-| `pnpm --filter @doc-review/api db:generate` | Generate a new migration after editing `apps/api/src/db/schema.ts`                                                      |
+| Command                                     | What it does                                                                                                                                   |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                  | Build shared types, run the API, the worker and the web app in dev                                                                             |
+| `pnpm --filter @doc-review/api worker:dev`  | Run only the extraction worker (watch mode); `worker` runs the built one                                                                       |
+| `pnpm build`                                | Build every package                                                                                                                            |
+| `pnpm typecheck`                            | Type-check every package                                                                                                                       |
+| `pnpm lint`                                 | ESLint across the repo                                                                                                                         |
+| `pnpm format`                               | Format with Prettier                                                                                                                           |
+| `pnpm test`                                 | Run all tests. API tests need Postgres up; they create and migrate a separate `app_test` database and never touch `app`. No LLM is ever called |
+| `pnpm --filter @doc-review/api test:live`   | Call the real LLM on `invoice-001.pdf` (needs `LLM_API_KEY` and `LLM_MODEL`; costs a few cents; never in CI)                                   |
+| `pnpm db:up` / `down`                       | Start / stop Postgres                                                                                                                          |
+| `pnpm db:migrate`                           | Apply SQL migrations from `apps/api/drizzle/`                                                                                                  |
+| `pnpm db:seed`                              | Seed version 1 of each fixture document plus a queued job                                                                                      |
+| `pnpm --filter @doc-review/api db:generate` | Generate a new migration after editing `apps/api/src/db/schema.ts`                                                                             |
 
 ## Repository layout
 
@@ -63,13 +64,13 @@ documents 1─* document_versions 1─* extraction_jobs
                               └─ previous_value_id → the same field's value on the previous version
 ```
 
-| Table               | One row is…                    | Key columns                                                                                                                                         |
-| ------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                                                                                       |
-| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`                                                                          |
-| `extraction_jobs`   | one extraction job (the queue) | `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `heartbeat_at`, `started_at`, `finished_at`, `last_error`, `prompt`, `raw_response` |
-| `extracted_values`  | one field of one version       | `field`, `value`, `evidence`, `gap_reason`, `previous_value_id`, `carried_over`                                                                     |
-| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`                                                                                                     |
+| Table               | One row is…                    | Key columns                                                                                                                                                                                                |
+| ------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                                                                                                                                              |
+| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`                                                                                                                                 |
+| `extraction_jobs`   | one extraction job (the queue) | `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `heartbeat_at`, `started_at`, `finished_at`, `last_error`, `prompt`, `prompt_version`, `model`, `raw_response`, `usage`, `llm_duration_ms` |
+| `extracted_values`  | one field of one version       | `field`, `value`, `normalized_value`, `evidence`, `evidence_start`, `evidence_end`, `gap_reason`, `previous_value_id`, `carried_over`                                                                      |
+| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`                                                                                                                                                            |
 
 **Versions → values → reviews.** Every upload is a new version row, and values and reviews hang off that specific version. Nothing is updated in place or deleted: every foreign key is `ON DELETE RESTRICT`. Each version keeps its own `parsed_text`, so evidence for version N is always checked against version N's text, even after N+1 exists.
 
@@ -204,7 +205,82 @@ docker compose exec db psql -U app -d app -c \
   "select status, count(*), max(attempts) as max_attempts from extraction_jobs group by status"
 ```
 
-The extractor is an interface ([`extraction/extractor.ts`](apps/api/src/extraction/extractor.ts)). `EXTRACTOR=fake` (the default for now) returns deterministic values. `FAKE_EXTRACTOR_BEHAVIOR=retryable|permanent` and `FAKE_EXTRACTOR_DELAY_MS` simulate failures and slow calls, which is handy for trying crash recovery by hand.
+The extractor is an interface ([`extraction/extractor.ts`](apps/api/src/extraction/extractor.ts)), described in the next section. `EXTRACTOR=fake` returns deterministic values without a model. `FAKE_EXTRACTOR_BEHAVIOR=retryable|permanent` and `FAKE_EXTRACTOR_DELAY_MS` simulate failures and slow calls, which is handy for trying crash recovery by hand.
+
+## Extraction
+
+```
+stored PDF ──pdfjs-dist──▶ raw text ──▶ prompt (field definitions + <document>) ──▶ one model call
+   │                         │                                                     (structured JSON output)
+   │                         └─ stored as document_versions.parsed_text                    │
+   │                                                                                         ▼
+   │                    values + gaps ◀── normalise ◀── value supported? ◀── evidence in THIS text? ◀── Zod-parse
+```
+
+The worker runs this ([`apps/api/src/extraction/`](apps/api/src/extraction/)) with `EXTRACTOR=llm`. That's the default whenever `LLM_API_KEY` is set; it also needs `LLM_MODEL`. Each step is a small pure module with its own tests.
+
+**Parsed text is stored per version, exactly as parsed.** [pdfjs-dist](https://github.com/mozilla/pdf.js) (Mozilla's PDF.js, with no runtime dependencies) turns the PDF into text, keeping a line break wherever PDF.js reports one. That raw text is stored on `document_versions.parsed_text` and never normalised. Evidence for version N is always verified against version N's own text, even after N+1 exists. The review UI can highlight a passage using the stored offsets. Failures are permanent:
+
+- encrypted or unreadable PDFs;
+- PDFs with no extractable text ("No extractable text — scanned PDFs are not supported", since there's no OCR);
+- documents longer than `MAX_DOCUMENT_CHARS`.
+
+**One structured model call.** The prompt (`PROMPT_VERSION = extract-v1`, stored on the job) gives each field's name, type and a one-line description from `packages/shared`, then the document between `<document>` tags. The request uses **structured outputs** (`output_config.format` with a JSON schema): the reply must be `{ fields: [{ field (enum of the type's fields), value, evidence, not_found_reason }] }`, so the model can't answer in free text. There are no SDK retries (the job queue owns retries), a `LLM_TIMEOUT_MS` timeout, and server-side refusal fallbacks where the model supports them. The instructions ask the model to:
+
+- copy evidence character for character;
+- never paraphrase or join separate lines;
+- return null with a reason rather than guess;
+- pick the value that matches the field's meaning (total due, not subtotal; current quarter, not prior).
+
+**Prompt-injection defence.** The document is wrapped in `<document>` tags and the system prompt says it's untrusted data, so instructions inside it are ignored. More importantly, nothing the model says is trusted: every value is checked by the code below, so injected text can at most produce gaps.
+
+**What code enforces** ([`verify-fields.ts`](apps/api/src/extraction/validate/verify-fields.ts)), field by field:
+
+| Check                                                                                 | Fails as                                                                  |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Output doesn't match the schema                                                       | whole attempt retryable (raw response kept)                               |
+| Field missing from the output (unknown fields are ignored; duplicates keep the first) | gap: `Not returned by the model`                                          |
+| Model says not found                                                                  | gap with the model's reason, or `Not found in document`                   |
+| Evidence empty                                                                        | gap: `No evidence quoted for the value`                                   |
+| Evidence not found verbatim in **this version's** text                                | gap: `Quoted evidence not found in document text`; the value is discarded |
+| Value not stated by its evidence                                                      | gap: `Value not supported by its evidence`                                |
+| Value can't be normalised as its type                                                 | gap: `Value could not be normalised as <type>`                            |
+
+**Verbatim matching rules.** Evidence and text are normalised identically: Unicode NFKC (folds PDF ligatures such as `ﬁ`), every whitespace run (spaces, tabs, `\r\n`, `\r`, `\n`) becomes one space, then trim. Deliberately **not** normalised: letter case, punctuation, symbols, digits. A paraphrase, a re-cased line or a "fixed" number never matches. The match is mapped back to raw positions, so the stored `evidence` is the exact passage from the document and `evidence_start`/`evidence_end` locate it.
+
+**Value–evidence consistency.** A real line can still be the wrong line, for example the subtotal line quoted for the total. The value must be stated by its evidence:
+
+- for any type, the value appears in the evidence (case-insensitive);
+- for money, numbers and percentages, its number is among the evidence's numbers (`5,230.30` fails against `Total Due: $5,230.29`);
+- for dates, the evidence contains the same calendar date in any common format.
+
+**Normalisation.** The value is stored as written (`value`) and in canonical form (`normalized_value`):
+
+| Type    | Canonical form                                                                           |
+| ------- | ---------------------------------------------------------------------------------------- |
+| date    | `YYYY-MM-DD` (`March 1, 2025` → `2025-03-01`; slash dates are read as US month/day/year) |
+| money   | decimal plus currency code (`$5,230.29` → `5230.29 USD`; `$` is read as USD)             |
+| percent | decimal (`4.2%` → `4.2`)                                                                 |
+| number  | decimal (`twenty-four (24)` → `24`)                                                      |
+| string  | whitespace collapsed                                                                     |
+
+Anything ambiguous (two different numbers, an impossible date, a European `1.200,50`) becomes a gap rather than a guess.
+
+**Errors** map onto the job queue's retry policy:
+
+- **Retryable:** timeouts, 429, 5xx, network errors, malformed or truncated output.
+- **Permanent:** unreadable, empty or oversized PDFs; 4xx such as `LLM authentication failed — check LLM_API_KEY`; model refusals.
+
+Every attempt that reaches the model stores `prompt`, `prompt_version`, `model`, `raw_response`, `usage` (input/output tokens) and `llm_duration_ms` on the job, on success and on failure. The API key comes only from the validated environment, and is never logged, stored or returned.
+
+**Cost.** One call per attempt. The fixtures are one page each, about 1,000 input tokens plus 500–700 output tokens (including the model's thinking), so a full seed run of 3 documents costs a few cents. Each job's `usage` column records the real numbers, and the worker logs `inputTokens`, `outputTokens`, `values` and `gaps` per job, never document text.
+
+**Tests never call a model.** Golden tests run the real parser and the real SDK client against recorded model replies in `apps/api/test/recordings/`, through an injected `fetch`. That includes one recording with a fabricated quote, which must become a gap. To call the real provider once:
+
+```sh
+pnpm --filter @doc-review/api test:live              # invoice-001.pdf; reads LLM_API_KEY/LLM_MODEL from .env
+LLM_RECORD=1 pnpm --filter @doc-review/api test:live  # also refreshes the recordings for all three fixtures
+```
 
 ## Decisions
 

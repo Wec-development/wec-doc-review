@@ -85,8 +85,15 @@ export type PreviousValue = z.infer<typeof previousValueSchema>;
 export const extractedValueSchema = z.object({
   id: z.uuid(),
   field: z.string(),
+  /** As written in the document. */
   value: z.string().nullable(),
+  /** Canonical form by field type, e.g. "2025-03-01", "5230.29 USD", "4.2". */
+  normalizedValue: z.string().nullable(),
+  /** The exact passage from this version's parsed text. */
   evidence: z.string().nullable(),
+  /** Where the evidence sits in the version's parsed text (end exclusive), for highlighting. */
+  evidenceStart: z.number().int().nonnegative().nullable(),
+  evidenceEnd: z.number().int().positive().nullable(),
   gapReason: z.string().nullable(),
   carriedOver: z.boolean(),
   reviewState: reviewStateSchema,

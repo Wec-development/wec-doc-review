@@ -329,7 +329,11 @@ describe('worker: failures and retries', () => {
       extract: async () => ({
         fields: [{ field: 'due_date', value: '2025-01-01', evidence: null, gapReason: null }],
         prompt: 'p',
+        promptVersion: null,
+        model: null,
         rawResponse: {},
+        usage: null,
+        durationMs: null,
         parsedText: null,
       }),
     };

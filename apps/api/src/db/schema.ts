@@ -100,8 +100,13 @@ export const extractionJobs = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     lastError: text('last_error'),
+    // Debugging data of the latest attempt that reached the model (success or failure).
     prompt: text('prompt'),
+    promptVersion: text('prompt_version'),
+    model: text('model'),
     rawResponse: jsonb('raw_response'),
+    usage: jsonb('usage'),
+    llmDurationMs: integer('llm_duration_ms'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -132,8 +137,13 @@ export const extractedValues = pgTable(
       .notNull()
       .references(() => documentVersions.id, RESTRICT),
     field: text('field').notNull(),
+    // As written in the document; normalized_value is its canonical form by field type.
     value: text('value'),
+    normalizedValue: text('normalized_value'),
+    // The exact passage from this version's parsed text, and where it sits (end exclusive).
     evidence: text('evidence'),
+    evidenceStart: integer('evidence_start'),
+    evidenceEnd: integer('evidence_end'),
     gapReason: text('gap_reason'),
     previousValueId: uuid('previous_value_id').references(
       (): AnyPgColumn => extractedValues.id,
@@ -147,6 +157,10 @@ export const extractedValues = pgTable(
     check(
       'extracted_values_value_or_gap',
       sql`(${table.value} is not null and ${table.evidence} is not null) or (${table.value} is null and ${table.gapReason} is not null)`,
+    ),
+    check(
+      'extracted_values_evidence_offsets',
+      sql`(${table.evidenceStart} is null and ${table.evidenceEnd} is null) or (${table.evidenceStart} >= 0 and ${table.evidenceEnd} > ${table.evidenceStart})`,
     ),
   ],
 );

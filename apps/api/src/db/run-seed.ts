@@ -1,15 +1,12 @@
-import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config.js';
 import { createDb } from '../db.js';
+import { resolveFixturesDir } from '../fixtures-dir.js';
 import { createDatabase } from './client.js';
 import { readFixtureManifest, seedFixtures } from './seed.js';
 
-// Repo-root fixtures/ from both src/db (tsx) and dist/db (built); override with FIXTURES_DIR.
-const defaultFixturesDir = fileURLToPath(new URL('../../../../fixtures', import.meta.url));
-
 async function runSeed(): Promise<void> {
   const config = loadConfig();
-  const manifest = await readFixtureManifest(config.FIXTURES_DIR ?? defaultFixturesDir);
+  const manifest = await readFixtureManifest(resolveFixturesDir(config));
   const pool = createDb(config.DATABASE_URL);
   try {
     const summary = await createDatabase(pool).transaction((tx) => seedFixtures(tx, manifest));

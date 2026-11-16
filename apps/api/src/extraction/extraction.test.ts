@@ -15,10 +15,12 @@ describe('classifyError', () => {
     expect(classifyError(new ExtractionError('rate limited', { retryable: true }))).toEqual({
       retryable: true,
       message: 'rate limited',
+      diagnostics: null,
     });
     expect(classifyError(new ExtractionError('empty PDF', { retryable: false }))).toEqual({
       retryable: false,
       message: 'empty PDF',
+      diagnostics: null,
     });
   });
 
@@ -31,6 +33,7 @@ describe('classifyError', () => {
     expect(classifyError(new Error('Connection terminated'))).toEqual({
       retryable: true,
       message: 'Connection terminated',
+      diagnostics: null,
     });
     expect(classifyError('weird')).toMatchObject({ retryable: true });
   });
