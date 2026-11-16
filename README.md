@@ -14,8 +14,10 @@ pnpm install
 pnpm db:up                  # Postgres in Docker (host port 5433)
 pnpm db:migrate             # create the schema
 pnpm db:seed                # insert version 1 of the 3 fixture documents (safe to re-run)
-pnpm dev                    # API on :3000, web on :5173
+pnpm dev                    # API on :3000, extraction worker, web on :5173
 ```
+
+The worker uses a deterministic fake extractor until the LLM extractor lands (`EXTRACTOR=fake`), so seeded documents move from `queued` to `extracted` within a couple of seconds.
 
 Check the API: <http://localhost:3000/health>
 
@@ -25,7 +27,8 @@ _TODO: once the api and web services are in `docker-compose.yml`, `docker compos
 
 | Command                                     | What it does                                                                                                            |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`                                  | Build shared types, run API and web in dev                                                                              |
+| `pnpm dev`                                  | Build shared types, run the API, the worker and the web app in dev                                                      |
+| `pnpm --filter @doc-review/api worker:dev`  | Run only the extraction worker (watch mode); `worker` runs the built one                                                |
 | `pnpm build`                                | Build every package                                                                                                     |
 | `pnpm typecheck`                            | Type-check every package                                                                                                |
 | `pnpm lint`                                 | ESLint across the repo                                                                                                  |
@@ -60,13 +63,13 @@ documents 1─* document_versions 1─* extraction_jobs
                               └─ previous_value_id → the same field's value on the previous version
 ```
 
-| Table               | One row is…                    | Key columns                                                                     |
-| ------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
-| `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                   |
-| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`      |
-| `extraction_jobs`   | one extraction attempt (queue) | `status`, `attempts`, `locked_until`, `last_error`, `prompt`, `raw_response`    |
-| `extracted_values`  | one field of one version       | `field`, `value`, `evidence`, `gap_reason`, `previous_value_id`, `carried_over` |
-| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`                                 |
+| Table               | One row is…                    | Key columns                                                                                                                                         |
+| ------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                                                                                       |
+| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`                                                                          |
+| `extraction_jobs`   | one extraction job (the queue) | `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `heartbeat_at`, `started_at`, `finished_at`, `last_error`, `prompt`, `raw_response` |
+| `extracted_values`  | one field of one version       | `field`, `value`, `evidence`, `gap_reason`, `previous_value_id`, `carried_over`                                                                     |
+| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`                                                                                                     |
 
 **Versions → values → reviews.** Every upload is a new version row, and values and reviews hang off that specific version. Nothing is updated in place or deleted: every foreign key is `ON DELETE RESTRICT`. Each version keeps its own `parsed_text`, so evidence for version N is always checked against version N's text, even after N+1 exists.
 
@@ -136,7 +139,72 @@ curl -s -H 'content-type: application/json' -d '{"action":"correct","value":"202
 
 ## How extraction is coordinated
 
-_TODO: Postgres-backed job table, locking, retries, crash recovery, idempotency._
+An upload only inserts a version and a `queued` row in `extraction_jobs`. A separate **worker process** ([`apps/api/src/worker/`](apps/api/src/worker/)) turns those rows into results. **Postgres is the only coordination mechanism.** There's no Redis and no queue library: the job is a row in the same database as the data it produces, so claiming, writing results and changing state are ordinary transactions, and a restart loses nothing.
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: upload / retry endpoint
+    queued --> running: claimed (lease starts)
+    running --> done: values written (one transaction)
+    running --> queued: retryable error, attempts left (backoff), or released at shutdown
+    running --> failed: permanent error, or attempts exhausted
+    running --> running: lease expired, another worker reclaims it (attempts + 1)
+    queued --> superseded: newer version uploaded
+    running --> superseded: newer version uploaded / found before writing
+    done --> [*]
+    failed --> [*]
+    superseded --> [*]
+```
+
+The version mirrors its job: `queued` → `extracting` → `extracted` | `failed` (or `superseded`). While a retry is pending, the version is back to `queued` and `error` explains the failed attempt.
+
+**Claiming.** Each worker runs `WORKER_CONCURRENCY` slots, and an idle slot polls every `WORKER_POLL_INTERVAL_MS`. A claim is one transaction ([`jobs.repository.ts`](apps/api/src/repositories/jobs.repository.ts)):
+
+```sql
+WITH next_job AS (
+  SELECT id FROM extraction_jobs
+  WHERE (status = 'queued'  AND run_after    <= now())   -- due (backoff elapsed)
+     OR (status = 'running' AND locked_until <  now())   -- its worker died
+  ORDER BY created_at
+  FOR UPDATE SKIP LOCKED
+  LIMIT 1
+)
+UPDATE extraction_jobs j
+SET status = 'running', locked_by = $workerId, locked_until = now() + $lease,
+    heartbeat_at = now(), attempts = attempts + 1, started_at = now()
+FROM next_job WHERE j.id = next_job.id
+RETURNING ...;   -- then, same transaction: version → 'extracting'
+```
+
+`SKIP LOCKED` lets any number of workers claim at once without blocking each other or taking the same job. Two partial indexes serve the two halves of the `WHERE`.
+
+**Leases and heartbeats.** A claim is a lease (`JOB_LEASE_SECONDS`, default 120). While the extractor runs, a heartbeat renews it every lease/3, so a slow LLM call isn't reclaimed. Every lease comparison uses the database clock (`now()`), never a worker's clock.
+
+**Fencing.** Every write that ends or hands back an attempt (done, retry, failed, superseded, released) is conditional on `id = $job AND status = 'running' AND locked_by = $workerId`. If a worker stalled past its lease and another worker reclaimed the job, the stale worker's write matches 0 rows. Its result is discarded and logged as `lease_lost`, and it can never overwrite the newer attempt. A heartbeat that finds the lease gone aborts the extraction early.
+
+**Retries and failure.** Errors are classified:
+
+- **Retryable:** timeouts, rate limits, dropped connections.
+- **Permanent:** an unreadable PDF, or extractor output that fails the shared Zod schema.
+
+A retryable error with attempts left (`JOB_MAX_ATTEMPTS`, default 3) re-queues the job with `run_after = now() + backoff`. The backoff is exponential (`JOB_BACKOFF_BASE_MS · 2^(attempt-1)`) with jitter, capped at 5 minutes. Otherwise the job and the version become `failed` with a readable `error`, and `POST /documents/:id/retry` re-queues it. The worker loop catches everything, so one bad job never stops it.
+
+**Crash recovery.** If a worker is killed (`kill -9`, OOM, container restart), its jobs stay `running` until their lease expires, and then the claim query picks them up again with attempts + 1. No manual reset is needed, and nothing stays `extracting`. A job that dies on every attempt is failed once attempts run out. On startup the worker logs how many expired leases it's about to recover.
+
+**Shutdown.** On SIGINT/SIGTERM the worker stops claiming and waits up to `WORKER_SHUTDOWN_TIMEOUT_MS` for in-flight jobs. Anything still running is then released, fenced, back to `queued`. That doesn't count as an attempt, because the job didn't fail.
+
+**Supersede.** Newest wins. Uploading version N+1 marks older open jobs `superseded`, including a running one, whose fenced completion then writes nothing. As a second guard, the completing transaction share-locks the document row and re-checks that the version is still the latest before writing. If it isn't, the job becomes `superseded` and no values are written.
+
+**Idempotent results.** A result is written in one transaction: job `done` (with `prompt` and `raw_response`), every value, and version `extracted`. Values are inserted `ON CONFLICT (version_id, field) DO NOTHING`, on top of the `UNIQUE (version_id, field)` constraint. However a version ends up extracted twice (retry, crash recovery, an impatient user), it never gets duplicate values.
+
+**Observing it.** The worker writes one JSON log line per job: `jobId`, `versionId`, `attempt`, `workerId`, `durationMs` and `outcome` (`done | retry | failed | superseded | released | lease_lost | abandoned`). Document text, evidence and secrets are never logged. Each job keeps its `prompt`, `raw_response` and `last_error`. To see the queue:
+
+```sh
+docker compose exec db psql -U app -d app -c \
+  "select status, count(*), max(attempts) as max_attempts from extraction_jobs group by status"
+```
+
+The extractor is an interface ([`extraction/extractor.ts`](apps/api/src/extraction/extractor.ts)). `EXTRACTOR=fake` (the default for now) returns deterministic values. `FAKE_EXTRACTOR_BEHAVIOR=retryable|permanent` and `FAKE_EXTRACTOR_DELAY_MS` simulate failures and slow calls, which is handy for trying crash recovery by hand.
 
 ## Decisions
 

@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @doc-review/shared build && pnpm --parallel --filter \"./apps/*\" dev",
+    "dev": "pnpm --filter @doc-review/shared build && pnpm --parallel --filter \"./apps/*\" run \"/^(dev|worker:dev)$/\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
