@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LlmExtractor } from '../extraction/llm-extractor.js';
 import { AnthropicLlmClient } from '../extraction/llm/anthropic-client.js';
+import { OpenAiLlmClient } from '../extraction/llm/openai-client.js';
 import { createFileResolver } from '../extraction/resolve-file.js';
 import { LocalDiskStorage } from '../storage/file-storage.js';
 
@@ -11,6 +12,7 @@ const RECORDINGS_DIR = fileURLToPath(new URL('../../test/recordings/', import.me
 export const FIXTURES_DIR = fileURLToPath(new URL('../../../../fixtures/', import.meta.url));
 
 export const TEST_MODEL = 'claude-opus-5-5';
+export const OPENAI_TEST_MODEL = 'gpt-4o-mini';
 /** A fake key; tests assert it never appears in errors or stored rows. */
 export const TEST_API_KEY = 'sk-ant-test-key-never-logged-0000';
 
@@ -88,6 +90,45 @@ export function buildRecording(
   };
 }
 
+/**
+ * An OpenAI `chat.completion` body carrying the fields of an Anthropic recording (optionally
+ * edited), or a refusal. Synthesised: a live `LLM_RECORD=1` run with an OpenAI key saves real
+ * ones under test/recordings/openai/.
+ */
+export function openAiRecording(
+  base: string,
+  changes: {
+    id: string;
+    editFields?: (fields: RecordedField[]) => RecordedField[];
+    refusal?: string;
+    finishReason?: 'stop' | 'length' | 'content_filter';
+    content?: string;
+  },
+) {
+  const fields = (changes.editFields ?? ((same) => same))(recordedFields(base));
+  return {
+    id: changes.id,
+    object: 'chat.completion',
+    created: 1_763_000_000,
+    model: 'gpt-4o-mini-2024-07-18',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: changes.refusal ? null : (changes.content ?? JSON.stringify({ fields })),
+          refusal: changes.refusal ?? null,
+          annotations: [],
+        },
+        logprobs: null,
+        finish_reason: changes.finishReason ?? 'stop',
+      },
+    ],
+    usage: { prompt_tokens: 905, completion_tokens: 212, total_tokens: 1117 },
+    system_fingerprint: 'fp_recorded',
+  };
+}
+
 /** Replaces the named fields of a recorded reply. */
 export function overrideFields(
   overrides: Record<string, Partial<RecordedField>>,
@@ -131,9 +172,8 @@ export function respondByDocumentType(
   recordings: Partial<Record<'invoice' | 'lease' | 'market report', string>>,
 ) {
   return (call: RecordedCall): Response => {
-    const messages = call.body.messages as { content: string }[] | undefined;
-    const prompt = messages?.[0]?.content ?? '';
-    const type = prompt.match(/^Document type: (.+)$/m)?.[1] as keyof typeof recordings | undefined;
+    const type = promptOf(call).match(/^Document type: (.+)$/m)?.[1] as
+      keyof typeof recordings | undefined;
     const name = type ? recordings[type] : undefined;
     return name
       ? jsonResponse(200, loadRecording(name))
@@ -141,10 +181,10 @@ export function respondByDocumentType(
   };
 }
 
-/** The prompt (document text included) of a recorded request. */
+/** The user prompt (document text included) of a recorded request, for either provider. */
 export function promptOf(call: RecordedCall): string {
-  const messages = call.body.messages as { content: string }[] | undefined;
-  return messages?.[0]?.content ?? '';
+  const messages = call.body.messages as { role?: string; content: string }[] | undefined;
+  return (messages?.find((m) => m.role === 'user') ?? messages?.[0])?.content ?? '';
 }
 
 /**
@@ -183,7 +223,7 @@ export function recordedLlmExtractor(fetch: typeof globalThis.fetch, maxDocument
 export function uploadsExtractor(
   storageDir: string,
   respond: (call: RecordedCall, index: number) => Response,
-  options: { delayMs?: (call: RecordedCall) => number } = {},
+  options: { delayMs?: (call: RecordedCall) => number; provider?: 'anthropic' | 'openai' } = {},
 ) {
   const replay = replayFetch(respond);
   const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -196,12 +236,20 @@ export function uploadsExtractor(
     return replay.fetch(input, init);
   };
   const extractor = new LlmExtractor({
-    llm: new AnthropicLlmClient({
-      apiKey: TEST_API_KEY,
-      model: TEST_MODEL,
-      timeoutMs: 5000,
-      fetch,
-    }),
+    llm:
+      options.provider === 'openai'
+        ? new OpenAiLlmClient({
+            apiKey: TEST_API_KEY,
+            model: OPENAI_TEST_MODEL,
+            timeoutMs: 5000,
+            fetch,
+          })
+        : new AnthropicLlmClient({
+            apiKey: TEST_API_KEY,
+            model: TEST_MODEL,
+            timeoutMs: 5000,
+            fetch,
+          }),
     resolveFile: createFileResolver(new LocalDiskStorage(storageDir), FIXTURES_DIR),
     maxDocumentChars: 100_000,
   });

@@ -1,18 +1,24 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { DocumentType, ExtractionResult } from '@doc-review/shared';
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../config.js';
 import { FIXTURES_DIR } from '../test/llm.js';
 import { LlmExtractor } from './llm-extractor.js';
-import { AnthropicLlmClient } from './llm/anthropic-client.js';
+import { createLlmClient } from './llm/create-llm-client.js';
 
 /**
  * Calls the REAL provider. Never part of `pnpm test` or CI; run with `pnpm test:live`
  * (LLM_LIVE_TEST=1, key and model from .env). LLM_RECORD=1 also saves each raw response to
- * test/recordings/ for the golden tests.
+ * test/recordings/ (Anthropic) or test/recordings/<provider>/ for the golden tests.
  */
 const RECORDINGS_DIR = fileURLToPath(new URL('../../test/recordings/', import.meta.url));
+
+/** Anthropic replies are the golden recordings; other providers' replies go in a subfolder. */
+function recordingPrefix(): string {
+  const provider = loadConfig().LLM_PROVIDER;
+  return provider === 'anthropic' ? '' : `${provider ?? 'unknown'}/`;
+}
 
 function liveExtractor(): LlmExtractor {
   if (process.env.LLM_LIVE_TEST !== '1') {
@@ -23,11 +29,7 @@ function liveExtractor(): LlmExtractor {
     throw new Error('Live tests need LLM_API_KEY and LLM_MODEL (in .env or the shell)');
   }
   return new LlmExtractor({
-    llm: new AnthropicLlmClient({
-      apiKey: config.LLM_API_KEY,
-      model: config.LLM_MODEL,
-      timeoutMs: config.LLM_TIMEOUT_MS,
-    }),
+    llm: createLlmClient(config),
     resolveFile: (filePath) => `${FIXTURES_DIR}${filePath.replace(/^fixtures\//, '')}`,
     maxDocumentChars: config.MAX_DOCUMENT_CHARS,
   });
@@ -54,8 +56,9 @@ async function extractLive(type: DocumentType, pdf: string, recording: string) {
     }),
   );
   if (process.env.LLM_RECORD === '1') {
+    mkdirSync(`${RECORDINGS_DIR}${recordingPrefix()}`, { recursive: true });
     writeFileSync(
-      `${RECORDINGS_DIR}${recording}.json`,
+      `${RECORDINGS_DIR}${recordingPrefix()}${recording}.json`,
       `${JSON.stringify(result.rawResponse, null, 2)}\n`,
     );
   }
