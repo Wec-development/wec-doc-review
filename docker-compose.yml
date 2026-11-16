@@ -4,6 +4,11 @@
 #
 # Host ports can be overridden (WEB_HOST_PORT, API_HOST_PORT, DB_HOST_PORT) when they are taken.
 
+# Fixed project name, so containers are doc_review_<service> whatever the clone folder is called.
+# Container names come from the project name: a second project (`-p doc-review-smoke`, used by
+# scripts/smoke.sh and restart-test.sh) gets its own names and runs beside this one.
+name: doc_review
+
 # Shared by migrate, api and worker. ${VAR:-default} values may be overridden from the shell or
 # a root .env; nothing secret is required (APP_ENCRYPTION_KEY is optional, see README).
 x-app-env: &app-env
@@ -33,7 +38,7 @@ x-api-image: &api-image doc-review-api:local
 
 services:
   db:
-    container_name: doc-review-postgres
+    container_name: ${COMPOSE_PROJECT_NAME}_postgres
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -54,7 +59,7 @@ services:
   # every `up`. A separate one-shot job, so the api and worker (which may be scaled) never race
   # to migrate, and never start against a half-migrated database.
   migrate:
-    container_name: doc-review-migrate
+    container_name: ${COMPOSE_PROJECT_NAME}_migrate
     image: *api-image
     pull_policy: never
     command: ['node', 'dist/db/migrate-and-seed.js']
@@ -65,7 +70,7 @@ services:
     restart: 'no'
 
   api:
-
+    container_name: ${COMPOSE_PROJECT_NAME}_api
     image: *api-image
     build:
       context: .
@@ -100,9 +105,11 @@ services:
     stop_grace_period: 15s
 
   # Claims jobs from Postgres (FOR UPDATE SKIP LOCKED + leases), so it can be restarted, killed
-  # or scaled (`docker compose up --scale worker=2`) without losing or duplicating work.
+  # or run more than once without losing or duplicating work. A fixed container_name rules out
+  # `--scale`; add workers with `docker compose run -d --no-deps worker`, or raise
+  # WORKER_CONCURRENCY.
   worker:
-    container_name: doc-review-worker
+    container_name: ${COMPOSE_PROJECT_NAME}_worker
     image: *api-image
     pull_policy: never
     command: ['node', 'dist/worker/index.js']
@@ -120,7 +127,7 @@ services:
     stop_grace_period: 30s
 
   web:
-    container_name: doc-review-web
+    container_name: ${COMPOSE_PROJECT_NAME}_web
     image: doc-review-web:local
     build:
       context: .

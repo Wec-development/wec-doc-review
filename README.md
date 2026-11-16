@@ -71,17 +71,17 @@ flowchart LR
     worker --- files
 ```
 
-The `docker compose up` services:
+The `docker compose up` services. Commands use the **service** name (`docker compose logs worker`, `docker compose exec db …`). Docker Desktop and `docker ps` show the **container** name: the compose project is named `doc_review`, so every container is prefixed `doc_review_` whatever the clone folder is called.
 
-| Service   | Why it exists                                                                                                                                                                               |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db`      | Postgres 16: documents, versions, values, reviews, the job queue and the encrypted LLM key. The only infrastructure.                                                                        |
-| `migrate` | A one-shot job: migrations, then the idempotent seed, then it exits 0. The API and worker start only after it succeeds, so replicas never race to migrate or run on a half-migrated schema. |
-| `api`     | The HTTP API. Uploads only store the file and insert rows; it never calls the LLM for extraction. Healthcheck: `GET /health`.                                                               |
-| `worker`  | Turns queued jobs into values. A separate service, so it can be restarted, killed or scaled (`--scale worker=2`) without touching the API.                                                  |
-| `web`     | nginx serving the built UI and proxying `/api` to the API: same-origin requests, no CORS, and no API URL baked into the build.                                                              |
+| Service   | Container             | Why it exists                                                                                                                                                                                                                                                                      |
+| --------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `db`      | `doc_review_postgres` | Postgres 16: documents, versions, values, reviews, the job queue and the encrypted LLM key. The only infrastructure.                                                                                                                                                               |
+| `migrate` | `doc_review_migrate`  | A one-shot job: migrations, then the idempotent seed, then it exits 0. The API and worker start only after it succeeds, so replicas never race to migrate or run on a half-migrated schema.                                                                                        |
+| `api`     | `doc_review_api`      | The HTTP API. Uploads only store the file and insert rows; it never calls the LLM for extraction. Healthcheck: `GET /health`.                                                                                                                                                      |
+| `worker`  | `doc_review_worker`   | Turns queued jobs into values. A separate service, so it can be restarted or killed without touching the API. More throughput: raise `WORKER_CONCURRENCY` (default 2), or add a worker with `docker compose run -d --no-deps worker`; `SKIP LOCKED` gives each job to one of them. |
+| `web`     | `doc_review_web`      | nginx serving the built UI and proxying `/api` to the API: same-origin requests, no CORS, and no API URL baked into the build.                                                                                                                                                     |
 
-**Volumes.** These survive `docker compose down`; only `down -v` deletes them:
+**Volumes** (`doc_review_pgdata`, `doc_review_storage`, `doc_review_secrets`). These survive `docker compose down`; only `down -v` deletes them:
 
 - `pgdata`: the database;
 - `storage`: uploaded PDFs;
@@ -436,6 +436,7 @@ The design holds; what changes is operations and cost.
   ```sh
   WEB_HOST_PORT=8081 API_HOST_PORT=3001 DB_HOST_PORT=5434 docker compose up --build
   ```
+- **"Port is already allocated" although this stack is down:** an older stack started under another project name (for example from before the project was named `doc_review`) still holds the ports. Find it with `docker ps`, then `docker compose -p <its-project> down`.
 - **The first start failed half-way** (an interrupted build, an old volume):
   ```sh
   docker compose down -v --remove-orphans && docker compose up --build
@@ -444,7 +445,3 @@ The design holds; what changes is operations and cost.
 - **Documents stay `queued`:** no LLM is saved yet. Open **Settings**.
 - **`LLM authentication failed — update the API key in Settings`:** the provider rejected the saved key. Replace it in Settings, then click **Retry** on the document.
 - **Reset everything** (database, uploads and the encryption key; the samples are re-seeded): `docker compose down -v`, then `docker compose up --build`.
-
-## AI usage
-
-AI coding tools (Claude Code) were used throughout, as the brief allows. The full session logs are submitted alongside the repository. The design decisions are mine and are documented above: the schema, the queue, the "unchanged" rule, the correction model, supersede and the security model.
