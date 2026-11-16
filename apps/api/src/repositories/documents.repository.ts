@@ -21,6 +21,7 @@ export interface VersionRow {
   status: VersionStatus;
   error: string | null;
   fileSha256: string | null;
+  baselineVersionId: string | null;
   createdAt: Date;
 }
 
@@ -37,6 +38,7 @@ const versionColumns = {
   status: documentVersions.status,
   error: documentVersions.error,
   fileSha256: documentVersions.fileSha256,
+  baselineVersionId: documentVersions.baselineVersionId,
   createdAt: documentVersions.createdAt,
 };
 

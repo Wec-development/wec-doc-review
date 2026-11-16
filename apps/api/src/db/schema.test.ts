@@ -39,7 +39,10 @@ describe('extracted_values', () => {
 
       await expectConstraintViolation(
         tx,
-        (sp) => sp.insert(extractedValues).values({ versionId, field: 'total_amount' }),
+        (sp) =>
+          sp
+            .insert(extractedValues)
+            .values({ versionId, field: 'total_amount', gapKind: 'not_found' }),
         'extracted_values_value_or_gap',
       );
     }));
@@ -65,10 +68,70 @@ describe('extracted_values', () => {
           versionId,
           field: 'median_household_income',
           gapReason: 'Not stated in the document',
+          gapKind: 'not_found',
         })
         .returning();
 
       expect(gap).toMatchObject({ value: null, evidence: null, carriedOver: false });
+    }));
+
+  it('rejects a gap without a gap kind', () =>
+    withRollback(testDb.db, async (tx) => {
+      const versionId = await insertDocumentVersion(tx);
+
+      await expectConstraintViolation(
+        tx,
+        (sp) =>
+          sp.insert(extractedValues).values({ versionId, field: 'due_date', gapReason: 'Absent' }),
+        'extracted_values_gap_kind',
+      );
+    }));
+
+  it('rejects a gap kind on a value', () =>
+    withRollback(testDb.db, async (tx) => {
+      const versionId = await insertDocumentVersion(tx);
+
+      await expectConstraintViolation(
+        tx,
+        (sp) =>
+          sp.insert(extractedValues).values({
+            versionId,
+            field: 'due_date',
+            value: '2025-01-01',
+            evidence: 'Due: 2025-01-01',
+            gapKind: 'not_found',
+          }),
+        'extracted_values_gap_kind',
+      );
+    }));
+});
+
+describe('reviews: carry-over', () => {
+  it('carries a source review onto a value at most once', () =>
+    withRollback(testDb.db, async (tx) => {
+      const versionId = await insertDocumentVersion(tx);
+      const [value] = await tx
+        .insert(extractedValues)
+        .values({ versionId, field: 'due_date', value: 'x', evidence: 'Due: x' })
+        .returning({ id: extractedValues.id });
+      if (!value) throw new Error('value was not inserted');
+      const [source] = await tx
+        .insert(reviews)
+        .values({ valueId: value.id, action: 'approve' })
+        .returning({ id: reviews.id });
+      if (!source) throw new Error('review was not inserted');
+      const carried = {
+        valueId: value.id,
+        action: 'approve' as const,
+        carriedFromReviewId: source.id,
+      };
+      await tx.insert(reviews).values(carried);
+
+      await expectConstraintViolation(
+        tx,
+        (sp) => sp.insert(reviews).values(carried),
+        'reviews_carried_once_uq',
+      );
     }));
 });
 

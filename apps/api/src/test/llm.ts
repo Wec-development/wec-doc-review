@@ -62,6 +62,26 @@ export function respondByDocumentType(
   };
 }
 
+/** The prompt (document text included) of a recorded request. */
+export function promptOf(call: RecordedCall): string {
+  const messages = call.body.messages as { content: string }[] | undefined;
+  return messages?.[0]?.content ?? '';
+}
+
+/**
+ * Answers with the recording of the first rule whose marker appears in the prompt's document
+ * text (e.g. "INVOICE (REVISED)" picks the v2 invoice reply).
+ */
+export function respondByDocumentText(rules: [marker: string, recording: string][]) {
+  return (call: RecordedCall): Response => {
+    const prompt = promptOf(call);
+    const match = rules.find(([marker]) => prompt.includes(marker));
+    return match
+      ? jsonResponse(200, loadRecording(match[1]))
+      : jsonResponse(500, { error: 'no recording' });
+  };
+}
+
 /** The production pipeline (real PDF parser, real SDK client) answered by `fetch`. */
 export function recordedLlmExtractor(fetch: typeof globalThis.fetch, maxDocumentChars = 100_000) {
   return new LlmExtractor({

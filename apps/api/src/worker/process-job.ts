@@ -138,7 +138,12 @@ async function extractAndComplete(
       gaps,
     });
     const completed = await completeJob(deps.db, job, deps.workerId, result);
-    return completed === 'lease_lost' ? lostOwnership(deps, job) : completed;
+    if (completed.status === 'done') {
+      // Counts only (never values): how much the reviewer has to look at again.
+      Object.assign(details, completed.carryOver);
+      return 'done';
+    }
+    return completed.status === 'lease_lost' ? lostOwnership(deps, job) : 'superseded';
   } catch (error) {
     if (run.signal.reason === SHUTDOWN) {
       const released = await releaseJob(deps.db, job, deps.workerId);

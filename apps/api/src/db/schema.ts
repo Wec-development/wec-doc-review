@@ -2,7 +2,11 @@ import {
   DOCUMENT_TYPES,
   JOB_STATUSES,
   OPEN_JOB_STATUSES,
+  COMPARISONS,
+  GAP_KINDS,
   REVIEW_ACTIONS,
+  type CarriedAction,
+  type ComparisonReason,
   type ReviewState,
   VERSION_STATUSES,
 } from '@doc-review/shared';
@@ -29,6 +33,8 @@ export const documentType = pgEnum('document_type', DOCUMENT_TYPES);
 export const versionStatus = pgEnum('version_status', VERSION_STATUSES);
 export const jobStatus = pgEnum('job_status', JOB_STATUSES);
 export const reviewAction = pgEnum('review_action', REVIEW_ACTIONS);
+export const comparison = pgEnum('comparison', COMPARISONS);
+export const gapKind = pgEnum('gap_kind', GAP_KINDS);
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
@@ -70,6 +76,11 @@ export const documentVersions = pgTable(
     fileSha256: text('file_sha256'),
     parsedText: text('parsed_text'),
     status: versionStatus('status').notNull().default('queued'),
+    // The earlier extracted version this one was compared against for carry-over.
+    baselineVersionId: uuid('baseline_version_id').references(
+      (): AnyPgColumn => documentVersions.id,
+      RESTRICT,
+    ),
     error: text('error'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -145,6 +156,10 @@ export const extractedValues = pgTable(
     evidenceStart: integer('evidence_start'),
     evidenceEnd: integer('evidence_end'),
     gapReason: text('gap_reason'),
+    gapKind: gapKind('gap_kind'),
+    // Result of comparing with the same field on the baseline version (Step 7 carry-over).
+    comparison: comparison('comparison').notNull().default('initial'),
+    comparisonReason: text('comparison_reason').$type<ComparisonReason>(),
     previousValueId: uuid('previous_value_id').references(
       (): AnyPgColumn => extractedValues.id,
       RESTRICT,
@@ -161,6 +176,11 @@ export const extractedValues = pgTable(
     check(
       'extracted_values_evidence_offsets',
       sql`(${table.evidenceStart} is null and ${table.evidenceEnd} is null) or (${table.evidenceStart} >= 0 and ${table.evidenceEnd} > ${table.evidenceStart})`,
+    ),
+    // Every gap says why it is a gap; values never carry a gap kind.
+    check(
+      'extracted_values_gap_kind',
+      sql`(${table.value} is null) = (${table.gapKind} is not null)`,
     ),
   ],
 );
@@ -180,6 +200,11 @@ export const reviews = pgTable(
     correctedValue: text('corrected_value'),
     note: text('note'),
     reviewer: text('reviewer').notNull().default('reviewer'),
+    // Set on a review copied from the previous version (carry-over): the review it was copied from.
+    carriedFromReviewId: uuid('carried_from_review_id').references(
+      (): AnyPgColumn => reviews.id,
+      RESTRICT,
+    ),
     // clock_timestamp(), not now(): reviews written in one transaction still get distinct,
     // ordered times, so "the latest review wins" is deterministic.
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -192,15 +217,21 @@ export const reviews = pgTable(
       sql`${table.action} <> 'correct' or ${table.correctedValue} is not null`,
     ),
     index('reviews_value_created_idx').on(table.valueId, table.createdAt),
+    // A source review is carried onto a value at most once (idempotent carry-over).
+    uniqueIndex('reviews_carried_once_uq')
+      .on(table.valueId, table.carriedFromReviewId)
+      .where(sql`${table.carriedFromReviewId} is not null`),
   ],
 );
 
 /**
  * The single definition of a value's review state, used by the document list, the detail view
- * and progress. Created by migration 0002 (drizzle-kit does not manage views marked existing).
- * - carried_over: the value was carried over from the previous version
- * - otherwise the latest review decides: approve -> approved, correct -> corrected
+ * and progress. Created by migration 0002, redefined in 0005 (drizzle-kit does not manage views
+ * marked existing). The latest review (reviews are append-only) decides:
  * - no review: pending
+ * - latest review was carried from the previous version: carried_over (carried_action says
+ *   whether it was an approval or a correction)
+ * - otherwise approve -> approved, correct -> corrected
  */
 export const valueReviewStates = pgView('value_review_states', {
   valueId: uuid('value_id').notNull(),
@@ -212,4 +243,7 @@ export const valueReviewStates = pgView('value_review_states', {
   note: text('note'),
   reviewer: text('reviewer'),
   reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewId: uuid('review_id'),
+  carriedFromReviewId: uuid('carried_from_review_id'),
+  carriedAction: text('carried_action').$type<CarriedAction>(),
 }).existing();

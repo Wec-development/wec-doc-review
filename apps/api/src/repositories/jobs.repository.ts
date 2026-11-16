@@ -1,7 +1,15 @@
 import type { DocumentType, ExtractionDiagnostics, ExtractionResult } from '@doc-review/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database, Executor } from '../db/client.js';
-import { documentVersions, extractedValues, extractionJobs } from '../db/schema.js';
+import { documentVersions, extractionJobs } from '../db/schema.js';
+import { compareVersions } from '../extraction/carry-over/compare-versions.js';
+import {
+  type CarryOverSummary,
+  findBaselineVersion,
+  loadBaselineValues,
+  summarise,
+  writeValuesWithCarryOver,
+} from './carry-over.repository.js';
 import { findLatestVersion, lockDocument } from './documents.repository.js';
 
 /**
@@ -15,6 +23,7 @@ export interface ClaimedJob {
   versionId: string;
   documentId: string;
   documentType: DocumentType;
+  versionNo: number;
   filePath: string;
   /** 1-based attempt number of this run. */
   attempt: number;
@@ -24,7 +33,10 @@ export interface ClaimedJob {
 
 /** Fenced writes either apply or report that this worker no longer owns the job. */
 export type FencedResult = 'applied' | 'lease_lost';
-export type CompleteResult = 'done' | 'superseded' | 'lease_lost';
+export type CompleteResult =
+  | { status: 'done'; carryOver: CarryOverSummary }
+  | { status: 'superseded' }
+  | { status: 'lease_lost' };
 
 /** Job columns that record an attempt's model call (kept on success and on failure). */
 function diagnosticsColumns(diagnostics: ExtractionDiagnostics) {
@@ -96,6 +108,7 @@ export async function claimNextJob(
     const versions = await tx.execute<{
       document_id: string;
       file_path: string;
+      version_no: number;
       type: DocumentType;
     }>(
       sql`
@@ -103,7 +116,7 @@ export async function claimNextJob(
         set status = 'extracting', updated_at = now()
         from documents d
         where v.id = ${job.version_id} and d.id = v.document_id
-        returning v.document_id, v.file_path, d.type
+        returning v.document_id, v.file_path, v.version_no, d.type
       `,
     );
     const version = versions.rows[0];
@@ -116,6 +129,7 @@ export async function claimNextJob(
       versionId: job.version_id,
       documentId: version.document_id,
       documentType: version.type,
+      versionNo: Number(version.version_no),
       filePath: version.file_path,
       attempt: Number(job.attempts),
       reclaimed: job.previous_status === 'running',
@@ -160,9 +174,11 @@ async function supersedeOwnedJob(
 
 /**
  * Writes the result in one transaction: job done (with prompt and raw response), all values
- * (idempotent on (version_id, field)), version extracted. If a newer version exists, nothing is
- * written and the job is superseded instead. The document row is share-locked so a new version
- * cannot be created between the check and the write.
+ * (idempotent on (version_id, field)) compared with the baseline version, carried reviews, and
+ * version extracted. Everything commits together or not at all. If a newer version exists,
+ * nothing is written and the job is superseded instead. The document row is share-locked so a
+ * new version cannot be created, and the baseline's reviews cannot change (they are read-only
+ * once a newer version exists), between the check and the write.
  */
 export async function completeJob(
   db: Database,
@@ -175,7 +191,7 @@ export async function completeJob(
     const latest = await findLatestVersion(tx, job.documentId);
     if (latest?.id !== job.versionId) {
       const superseded = await supersedeOwnedJob(tx, job, workerId);
-      return superseded === 'applied' ? 'superseded' : 'lease_lost';
+      return superseded === 'applied' ? { status: 'superseded' } : { status: 'lease_lost' };
     }
 
     const fenced = await tx
@@ -190,20 +206,27 @@ export async function completeJob(
       .where(ownedBy(job.jobId, workerId))
       .returning({ id: extractionJobs.id });
     if (fenced.length === 0) {
-      return 'lease_lost';
+      return { status: 'lease_lost' };
     }
 
-    if (result.fields.length > 0) {
-      await tx
-        .insert(extractedValues)
-        .values(result.fields.map((field) => ({ versionId: job.versionId, ...field })))
-        .onConflictDoNothing({ target: [extractedValues.versionId, extractedValues.field] });
-    }
+    const baseline = await findBaselineVersion(tx, job.documentId, job.versionNo);
+    const comparisons = compareVersions(
+      baseline
+        ? { parsedText: baseline.parsedText, values: await loadBaselineValues(tx, baseline.id) }
+        : null,
+      { parsedText: result.parsedText, fields: result.fields },
+    );
+    await writeValuesWithCarryOver(tx, job.versionId, result.fields, comparisons);
     await tx
       .update(documentVersions)
-      .set({ status: 'extracted', parsedText: result.parsedText, error: null })
+      .set({
+        status: 'extracted',
+        parsedText: result.parsedText,
+        error: null,
+        baselineVersionId: baseline?.id ?? null,
+      })
       .where(eq(documentVersions.id, job.versionId));
-    return 'done';
+    return { status: 'done', carryOver: summarise(comparisons, baseline) };
   });
 }
 

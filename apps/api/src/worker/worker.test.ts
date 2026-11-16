@@ -216,7 +216,9 @@ describe('worker: leases and fencing', () => {
       signal: new AbortController().signal,
     });
 
-    expect(await completeJob(testDb.db, zombie, 'worker-a', result)).toBe('lease_lost');
+    expect(await completeJob(testDb.db, zombie, 'worker-a', result)).toEqual({
+      status: 'lease_lost',
+    });
     expect(await failJob(testDb.db, zombie, 'worker-a', { error: 'x', versionError: 'x' })).toBe(
       'lease_lost',
     );

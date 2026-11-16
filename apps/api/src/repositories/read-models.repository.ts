@@ -1,5 +1,9 @@
 import type {
+  CarriedAction,
+  Comparison,
+  ComparisonReason,
   DocumentType,
+  GapKind,
   ReviewAction,
   ReviewProgress,
   ReviewState,
@@ -27,10 +31,15 @@ export interface ValueView {
   evidenceStart: number | null;
   evidenceEnd: number | null;
   gapReason: string | null;
+  gapKind: GapKind | null;
+  comparison: Comparison;
+  comparisonReason: ComparisonReason | null;
   carriedOver: boolean;
   reviewState: ReviewState;
+  carriedAction: CarriedAction | null;
   latestReview: ReviewView | null;
   previous: {
+    versionNo: number;
     value: string | null;
     evidence: string | null;
     latestReview: ReviewView | null;
@@ -113,6 +122,7 @@ export async function listDocumentSummaries(db: Executor): Promise<DocumentSumma
 
 const previousValue = alias(extractedValues, 'previous_value');
 const previousState = alias(valueReviewStates, 'previous_state');
+const previousVersion = alias(documentVersions, 'previous_version');
 
 interface ReviewColumns {
   reviewAction: ReviewAction | null;
@@ -146,14 +156,19 @@ async function selectValueViews(db: Executor, where: SQL | undefined): Promise<V
       evidenceStart: extractedValues.evidenceStart,
       evidenceEnd: extractedValues.evidenceEnd,
       gapReason: extractedValues.gapReason,
+      gapKind: extractedValues.gapKind,
+      comparison: extractedValues.comparison,
+      comparisonReason: extractedValues.comparisonReason,
       carriedOver: extractedValues.carriedOver,
       reviewState: valueReviewStates.reviewState,
+      carriedAction: valueReviewStates.carriedAction,
       reviewAction: valueReviewStates.reviewAction,
       correctedValue: valueReviewStates.correctedValue,
       note: valueReviewStates.note,
       reviewer: valueReviewStates.reviewer,
       reviewedAt: valueReviewStates.reviewedAt,
       previousId: previousValue.id,
+      previousVersionNo: previousVersion.versionNo,
       previousValue: previousValue.value,
       previousEvidence: previousValue.evidence,
       previousReviewAction: previousState.reviewAction,
@@ -166,6 +181,7 @@ async function selectValueViews(db: Executor, where: SQL | undefined): Promise<V
     .innerJoin(valueReviewStates, eq(valueReviewStates.valueId, extractedValues.id))
     .leftJoin(previousValue, eq(previousValue.id, extractedValues.previousValueId))
     .leftJoin(previousState, eq(previousState.valueId, previousValue.id))
+    .leftJoin(previousVersion, eq(previousVersion.id, previousValue.versionId))
     .where(where);
 
   return rows.map((row) => ({
@@ -177,13 +193,18 @@ async function selectValueViews(db: Executor, where: SQL | undefined): Promise<V
     evidenceStart: row.evidenceStart,
     evidenceEnd: row.evidenceEnd,
     gapReason: row.gapReason,
+    gapKind: row.gapKind,
+    comparison: row.comparison,
+    comparisonReason: row.comparisonReason,
     carriedOver: row.carriedOver,
     reviewState: row.reviewState,
+    carriedAction: row.carriedAction,
     latestReview: toReviewView(row),
     previous:
-      row.previousId === null
+      row.previousId === null || row.previousVersionNo === null
         ? null
         : {
+            versionNo: row.previousVersionNo,
             value: row.previousValue,
             evidence: row.previousEvidence,
             latestReview: toReviewView({

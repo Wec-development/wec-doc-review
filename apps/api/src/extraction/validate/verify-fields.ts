@@ -3,6 +3,7 @@ import {
   EXPECTED_FIELDS,
   type ExtractedField,
   type FieldKind,
+  type GapKind,
 } from '@doc-review/shared';
 import { locateEvidence } from '../normalise/match-text.js';
 import { normaliseValue } from '../normalise/normalise-value.js';
@@ -19,9 +20,10 @@ export const GAP_REASONS = {
   notNormalisable: (type: FieldKind) => `Value could not be normalised as ${type}`,
 } as const;
 
-function gap(field: string, reason: string): ExtractedField {
+function gap(field: string, kind: GapKind, reason: string): ExtractedField {
   return {
     field,
+    gapKind: kind,
     value: null,
     normalizedValue: null,
     evidence: null,
@@ -43,24 +45,24 @@ export function verifyField(
   parsedText: string,
 ): ExtractedField {
   if (!claim) {
-    return gap(field, GAP_REASONS.notReturned);
+    return gap(field, 'not_returned', GAP_REASONS.notReturned);
   }
   if (claim.value === null || claim.value.trim() === '') {
-    return gap(field, claim.not_found_reason?.trim() || GAP_REASONS.notFound);
+    return gap(field, 'not_found', claim.not_found_reason?.trim() || GAP_REASONS.notFound);
   }
   if (claim.evidence === null || claim.evidence.trim() === '') {
-    return gap(field, GAP_REASONS.noEvidence);
+    return gap(field, 'evidence_not_verified', GAP_REASONS.noEvidence);
   }
   const location = locateEvidence(parsedText, claim.evidence);
   if (!location) {
-    return gap(field, GAP_REASONS.evidenceNotFound);
+    return gap(field, 'evidence_not_verified', GAP_REASONS.evidenceNotFound);
   }
   if (!isValueSupportedByEvidence(type, claim.value, location.passage)) {
-    return gap(field, GAP_REASONS.notSupported);
+    return gap(field, 'not_supported', GAP_REASONS.notSupported);
   }
   const normalizedValue = normaliseValue(type, claim.value);
   if (normalizedValue === null) {
-    return gap(field, GAP_REASONS.notNormalisable(type));
+    return gap(field, 'not_normalisable', GAP_REASONS.notNormalisable(type));
   }
   return {
     field,
@@ -71,6 +73,7 @@ export function verifyField(
     evidenceStart: location.start,
     evidenceEnd: location.end,
     gapReason: null,
+    gapKind: null,
   };
 }
 
