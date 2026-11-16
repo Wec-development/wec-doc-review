@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const KEY_BYTES = 32;
@@ -34,17 +34,26 @@ function isErrno(error: unknown, code: string): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
 }
 
-/** Creates the key file exclusively (mode 0600), so concurrent first starts agree on one key. */
+/**
+ * Creates the key file exactly once, even when the API and worker start at the same moment.
+ * The key is written to a private temp file first and then published with link(), which fails
+ * with EEXIST if another process won. Unlike an exclusive open, the name only appears once the
+ * content is complete, so no process can ever read a half-written (empty) key.
+ */
 function createKeyFile(dir: string, file: string): Buffer {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const temp = path.join(dir, `.encryption.key.${process.pid}.${randomBytes(6).toString('hex')}`);
+  writeFileSync(temp, `${randomBytes(KEY_BYTES).toString('base64')}\n`, {
+    flag: 'wx',
+    mode: 0o600,
+  });
   try {
-    writeFileSync(file, `${randomBytes(KEY_BYTES).toString('base64')}\n`, {
-      flag: 'wx',
-      mode: 0o600,
-    });
+    linkSync(temp, file);
   } catch (error) {
-    // Another process (API or worker) created it first: use theirs.
+    // Another process (API or worker) published its key first: use theirs.
     if (!isErrno(error, 'EEXIST')) throw error;
+  } finally {
+    rmSync(temp, { force: true });
   }
   return readKeyFile(file);
 }
