@@ -67,10 +67,10 @@ documents 1─* document_versions 1─* extraction_jobs
 | Table               | One row is…                    | Key columns                                                                                                                                                                                                |
 | ------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `documents`         | a logical document             | `type`, `title`, `fixture_key` (set only for seeded fixtures)                                                                                                                                              |
-| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`                                                                                                                                 |
+| `document_versions` | one uploaded PDF               | `version_no`, `file_path`, `file_sha256`, `parsed_text`, `status`, `error`, `baseline_version_id` (the version it was compared against)                                                                    |
 | `extraction_jobs`   | one extraction job (the queue) | `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `heartbeat_at`, `started_at`, `finished_at`, `last_error`, `prompt`, `prompt_version`, `model`, `raw_response`, `usage`, `llm_duration_ms` |
-| `extracted_values`  | one field of one version       | `field`, `value`, `normalized_value`, `evidence`, `evidence_start`, `evidence_end`, `gap_reason`, `previous_value_id`, `carried_over`                                                                      |
-| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`                                                                                                                                                            |
+| `extracted_values`  | one field of one version       | `field`, `value`, `normalized_value`, `evidence`, `evidence_start`, `evidence_end`, `gap_reason`, `gap_kind`, `comparison`, `comparison_reason`, `previous_value_id`, `carried_over`                       |
+| `reviews`           | one approve/correct action     | `action`, `corrected_value`, `note`, `reviewer`, `carried_from_review_id` (set on a review copied from the previous version)                                                                               |
 
 **Versions → values → reviews.** Every upload is a new version row, and values and reviews hang off that specific version. Nothing is updated in place or deleted: every foreign key is `ON DELETE RESTRICT`. Each version keeps its own `parsed_text`, so evidence for version N is always checked against version N's text, even after N+1 exists.
 
@@ -91,7 +91,13 @@ documents 1─* document_versions 1─* extraction_jobs
 
 The worker claims jobs through the `(status, locked_until)` index, and `reviews (value_id, created_at)` serves "latest review per value".
 
-**Review state is derived in one place:** the `value_review_states` view (migration `0002`). A value is `carried_over` if it was carried over from the previous version. Otherwise its latest review decides: `approve` gives `approved`, `correct` gives `corrected`, and no review means `pending`. The view also exposes `is_gap` (`value IS NULL`). The document list, the detail view and the progress counts all read this view, so they can't disagree. `reviews.created_at` defaults to `clock_timestamp()`, so two reviews in one transaction still have a well-defined latest.
+**Review state is derived in one place:** the `value_review_states` view (migrations `0002` and `0005`). The latest review decides:
+
+- no review → `pending`
+- a review carried over from the previous version (`carried_from_review_id` set) → `carried_over`, with `carried_action` saying whether that review was an approval or a correction
+- otherwise `approve` → `approved` and `correct` → `corrected`
+
+A reviewer who later re-reviews a carried value adds a normal review, so the state becomes `approved` or `corrected`; the carried review stays in the history. The view also exposes `is_gap` (`value IS NULL`). The document list, the detail view and the progress counts all read this view, so they can't disagree. `reviews.created_at` defaults to `clock_timestamp()`, so two reviews in one transaction still have a well-defined latest.
 
 **Version statuses:** `queued → extracting → extracted | failed`. An older version that was still `queued` or `extracting` when a newer version arrived becomes `superseded`, so it never stays in flight forever. The current version is never `superseded`.
 
@@ -282,12 +288,63 @@ pnpm --filter @doc-review/api test:live              # invoice-001.pdf; reads LL
 LLM_RECORD=1 pnpm --filter @doc-review/api test:live  # also refreshes the recordings for all three fixtures
 ```
 
+## Re-extraction and carry-over
+
+When version N+1 is extracted, it's compared field by field with a **baseline**: the most recent earlier version of the same document that finished **extracting**. Failed, superseded and never-extracted versions are skipped (v1 extracted, v2 failed, v3 → compared with v1). The choice is stored as `document_versions.baseline_version_id`, and the API returns it as `baselineVersionNo`. The first version has no baseline, so all its values are `comparison = 'initial'`.
+
+**What "unchanged" means.** For a field that has a value in both versions, it's **unchanged** only when all three hold:
+
+1. the normalised values are equal (the type-normalised form from extraction, e.g. `5230.29 USD`);
+2. the baseline's evidence still appears verbatim in the **new** version's text; and
+3. the new evidence appears verbatim in the **baseline's** text.
+
+"Verbatim" uses the same normalisation as evidence verification: NFKC, every whitespace run becomes one space, trim, and nothing else (no case folding, no punctuation stripping). Otherwise the field is **changed**, with a reason (`value_differs`, `baseline_evidence_missing`, `candidate_evidence_missing`). The pure function [`compareVersions`](apps/api/src/extraction/carry-over/compare-versions.ts) implements this and is unit-tested case by case.
+
+**Why the cross-check, and why no positions.** Line numbers and character offsets are never compared, so adding a paragraph, reflowing lines or moving a section doesn't count as a change. Checking evidence in both directions makes the rule robust to the model quoting a slightly different passage for the same fact: both passages must exist in both texts. Any edit to the quoted passage still breaks the match.
+
+**Gaps.** A field that is not found in both versions (`gap_kind = not_found` on both sides) is unchanged. Any other gap is **changed**, so a person looks again: a value that became a gap, a gap that got a value, or a gap where the evidence didn't verify, wasn't supported or couldn't be normalised. Every gap records its `gap_kind`.
+
+**How reviews carry over.**
+
+- Every new value with a baseline counterpart links to it (`previous_value_id`), changed or not. The UI shows the previous version's value and review beside it (`previous.versionNo`, `value`, `evidence`, `latestReview`).
+- For an **unchanged** value whose baseline value has a review, that latest review is **copied** as a new row on the new value, with `carried_from_review_id` pointing to the source (the chain can be followed back). The value is marked `carried_over`.
+- Unchanged but never reviewed means there is nothing to carry: it stays `pending`.
+- Changed values stay `pending`.
+- Nothing on the old version is modified. Reviews are append-only, so the new version's reviews are new rows.
+
+**Atomic and idempotent.** Comparison, values and carried reviews are written in the **same fenced transaction** that completes the job: all of it commits, or none. `UNIQUE (version_id, field)` and `UNIQUE (value_id, carried_from_review_id) WHERE carried_from_review_id IS NOT NULL` make a re-run of the same version a no-op.
+
+**Concurrency.**
+
+- The baseline can't change underneath the comparison: once a newer version exists, reviews on older versions are rejected with 409.
+- If v3 arrives while v2 is extracting, v2's job is superseded and writes nothing. v3 is then compared with the latest _extracted_ version.
+- Only the latest version ever commits, because the completing transaction share-locks the document and re-checks that the version is still the latest.
+
+**Worked example (the fixtures).** Reviewing invoice v1 (approve four fields, correct `vendor_name`) and then uploading `invoice-001.v2.pdf` gives:
+
+| Field            | v1 → v2                           | Result                                                                   |
+| ---------------- | --------------------------------- | ------------------------------------------------------------------------ |
+| `invoice_number` | `INV-2025-0847` → same, same line | unchanged → **carried over** (approved)                                  |
+| `issue_date`     | `2025-09-14` → same, same line    | unchanged → **carried over** (approved)                                  |
+| `vendor_name`    | same line in both                 | unchanged → **carried over** (corrected, same corrected value and note)  |
+| `due_date`       | `2025-10-14` → `2025-11-13`       | changed (`value_differs`) → **pending**, previous value and review shown |
+| `total_amount`   | `$5,230.29` → `$6,126.45`         | changed (`value_differs`) → **pending**, previous value and review shown |
+
+The result is exactly 2 to re-review. The v2 text also changes the heading to `INVOICE (REVISED)` and adds a two-line paragraph, which shifts the lines after it. Positions aren't compared, so neither counts as a change to the three unchanged fields.
+
+**Known limitations.**
+
+- An identical passage whose _surrounding_ context changed meaning is still treated as unchanged. For example, the same "Total Due" line under a new heading that says the invoice is void.
+- A value whose normalisation fails becomes a gap and is therefore always re-reviewed.
+- If the model quotes a passage that appears in both versions but now refers to something else, only the human review catches it.
+
 ## Decisions
 
 - **Correction model:** corrections live beside the extracted value as append-only reviews, and the latest wins. See [API](#api).
 - **New version during extraction:** newest wins. Older open jobs are `superseded`, and nothing is deleted. See [API](#api).
+- **"Unchanged evidence":** the same normalised value, plus each version's evidence found verbatim in the other version's text; positions are ignored. See [Re-extraction and carry-over](#re-extraction-and-carry-over).
 
-_TODO: what "unchanged evidence" means, polling vs streaming._
+_TODO: polling vs streaming._
 
 ## What I cut and what's next
 

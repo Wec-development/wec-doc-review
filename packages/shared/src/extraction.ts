@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { gapKindSchema } from './types.js';
 
 /**
  * What an extractor (the fake, or the LLM pipeline) must return for one document version.
@@ -23,11 +24,16 @@ export const extractedFieldSchema = z
     evidenceStart: z.number().int().nonnegative().nullable().optional(),
     evidenceEnd: z.number().int().positive().nullable().optional(),
     gapReason: z.string().nullable(),
+    /** Why it is a gap (null for values). Extractors that do not say are treated as not_found. */
+    gapKind: gapKindSchema.nullable().optional(),
   })
   .refine(
     (f) => (f.value !== null && f.evidence !== null) || (f.value === null && f.gapReason !== null),
     { message: 'A field needs a value with evidence, or no value with a gap reason' },
   )
+  .refine((f) => f.value === null || f.gapKind == null, {
+    message: 'Only gaps have a gap kind',
+  })
   .refine(
     (f) =>
       (f.evidenceStart == null) === (f.evidenceEnd == null) &&

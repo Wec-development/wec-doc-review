@@ -1,4 +1,10 @@
-import type { DocumentType, JobStatus, ReviewAction, VersionStatus } from '@doc-review/shared';
+import type {
+  DocumentType,
+  GapKind,
+  JobStatus,
+  ReviewAction,
+  VersionStatus,
+} from '@doc-review/shared';
 import { asc, eq } from 'drizzle-orm';
 import type { Executor } from '../db/client.js';
 import {
@@ -89,6 +95,7 @@ export async function makeValue(
     value?: string;
     evidence?: string;
     gapReason?: string;
+    gapKind?: GapKind;
     carriedOver?: boolean;
     previousValueId?: string;
   },
@@ -103,6 +110,7 @@ export async function makeValue(
         value: isGap ? null : (input.value ?? `${input.field} value`),
         evidence: isGap ? null : (input.evidence ?? `${input.field}: evidence`),
         gapReason: input.gapReason ?? null,
+        gapKind: isGap ? (input.gapKind ?? 'not_found') : null,
         carriedOver: input.carriedOver ?? false,
         previousValueId: input.previousValueId ?? null,
       })
@@ -112,17 +120,26 @@ export async function makeValue(
   return row.id;
 }
 
+/** Appends a review; with `carriedFrom` it is a review carried over from that source review. */
 export async function makeReview(
   db: Executor,
   valueId: string,
-  input: { action: ReviewAction; correctedValue?: string; note?: string },
-): Promise<void> {
-  await db.insert(reviews).values({
-    valueId,
-    action: input.action,
-    correctedValue: input.correctedValue ?? null,
-    note: input.note ?? null,
-  });
+  input: { action: ReviewAction; correctedValue?: string; note?: string; carriedFrom?: string },
+): Promise<string> {
+  const row = first(
+    await db
+      .insert(reviews)
+      .values({
+        valueId,
+        action: input.action,
+        correctedValue: input.correctedValue ?? null,
+        note: input.note ?? null,
+        carriedFromReviewId: input.carriedFrom ?? null,
+      })
+      .returning({ id: reviews.id }),
+    'a review',
+  );
+  return row.id;
 }
 
 export function versionsOf(db: Executor, documentId: string) {

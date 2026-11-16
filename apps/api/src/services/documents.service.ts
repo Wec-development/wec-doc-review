@@ -40,7 +40,7 @@ export interface PdfUpload {
 
 export interface DocumentDetailView {
   document: DocumentRow & { currentVersionNo: number };
-  version: VersionRow;
+  version: VersionRow & { baselineVersionNo: number | null };
   versions: VersionRow[];
   values: ValueView[];
 }
@@ -184,7 +184,11 @@ export async function getDocument(
   const currentVersionNo = versions.at(-1)?.versionNo ?? version.versionNo;
   return {
     document: { ...document, currentVersionNo },
-    version,
+    version: {
+      ...version,
+      baselineVersionNo:
+        versions.find((candidate) => candidate.id === version.baselineVersionId)?.versionNo ?? null,
+    },
     versions,
     values: orderByFieldDefinitions(document.type, values),
   };

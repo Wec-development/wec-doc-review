@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import {
+  carriedActionSchema,
+  comparisonReasonSchema,
+  comparisonSchema,
   documentTypeSchema,
+  gapKindSchema,
   reviewActionSchema,
   reviewStateSchema,
   versionStatusSchema,
@@ -75,6 +79,8 @@ export type Review = z.infer<typeof reviewSchema>;
 
 /** The same field on the version this value was re-extracted from. */
 export const previousValueSchema = z.object({
+  /** The baseline version this value came from. */
+  versionNo: z.number().int().positive(),
   value: z.string().nullable(),
   evidence: z.string().nullable(),
   latestReview: reviewSchema.nullable(),
@@ -95,8 +101,14 @@ export const extractedValueSchema = z.object({
   evidenceStart: z.number().int().nonnegative().nullable(),
   evidenceEnd: z.number().int().positive().nullable(),
   gapReason: z.string().nullable(),
+  gapKind: gapKindSchema.nullable(),
+  /** Compared with the same field on the baseline version (see README: re-extraction). */
+  comparison: comparisonSchema,
+  comparisonReason: comparisonReasonSchema.nullable(),
   carriedOver: z.boolean(),
   reviewState: reviewStateSchema,
+  /** For carried-over values: the carried review's outcome. */
+  carriedAction: carriedActionSchema.nullable(),
   latestReview: reviewSchema.nullable(),
   previous: previousValueSchema.nullable(),
 });
@@ -123,6 +135,8 @@ export const documentDetailSchema = z.object({
     versionNo: z.number().int().positive(),
     status: versionStatusSchema,
     error: z.string().nullable(),
+    /** The earlier extracted version this one was compared against (null for the first). */
+    baselineVersionNo: z.number().int().positive().nullable(),
     createdAt: timestampSchema,
   }),
   versions: z.array(versionSummarySchema),

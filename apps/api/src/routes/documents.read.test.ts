@@ -34,6 +34,8 @@ async function makeReviewedInvoice() {
   const v1 = await makeVersion(testDb.db, documentId, { versionNo: 1, status: 'extracted' });
   const oldTotal = await makeValue(testDb.db, v1, { field: 'total_amount', value: '$100.00' });
   await makeReview(testDb.db, oldTotal, { action: 'approve' });
+  const oldVendor = await makeValue(testDb.db, v1, { field: 'vendor_name' });
+  const vendorApproval = await makeReview(testDb.db, oldVendor, { action: 'approve' });
 
   const v2 = await makeVersion(testDb.db, documentId, { versionNo: 2, status: 'extracted' });
   const ids = {
@@ -42,7 +44,11 @@ async function makeReviewedInvoice() {
       value: '$120.00',
       previousValueId: oldTotal,
     }),
-    vendor: await makeValue(testDb.db, v2, { field: 'vendor_name', carriedOver: true }),
+    vendor: await makeValue(testDb.db, v2, {
+      field: 'vendor_name',
+      carriedOver: true,
+      previousValueId: oldVendor,
+    }),
     dueDate: await makeValue(testDb.db, v2, { field: 'due_date' }),
     issueDate: await makeValue(testDb.db, v2, { field: 'issue_date' }),
     invoiceNumber: await makeValue(testDb.db, v2, {
@@ -50,7 +56,8 @@ async function makeReviewedInvoice() {
       gapReason: 'Not stated in the document',
     }),
   };
-  await makeReview(testDb.db, ids.vendor, { action: 'approve' });
+  // Carried over: the v1 approval copied onto v2 with its provenance.
+  await makeReview(testDb.db, ids.vendor, { action: 'approve', carriedFrom: vendorApproval });
   await makeReview(testDb.db, ids.dueDate, { action: 'approve' });
   await makeReview(testDb.db, ids.issueDate, { action: 'correct', correctedValue: '2025-03-02' });
   return { documentId, ids };
@@ -160,6 +167,7 @@ describe('GET /documents/:id', () => {
     expect(detail.version.versionNo).toBe(1);
     expect(detail.document.currentVersionNo).toBe(2);
     expect(detail.values).toEqual([
+      expect.objectContaining({ field: 'vendor_name', reviewState: 'approved' }),
       expect.objectContaining({ field: 'total_amount', value: '$100.00', reviewState: 'approved' }),
     ]);
   });
@@ -217,11 +225,11 @@ describe('GET /documents/:id/progress', () => {
     ).json();
     expect(progress).toEqual({
       pending: 0,
-      approved: 1,
+      approved: 2,
       corrected: 0,
       carriedOver: 0,
       gaps: 0,
-      total: 1,
+      total: 2,
     });
   });
 

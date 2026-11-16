@@ -48,7 +48,13 @@ function fakeFields(type: DocumentType): ExtractedField[] {
   return EXPECTED_FIELDS[type].map(({ field }) => {
     const value = FAKE_VALUES[type][field] ?? null;
     return value === null
-      ? { field, value: null, evidence: null, gapReason: 'Not stated in the document (fake)' }
+      ? {
+          field,
+          value: null,
+          evidence: null,
+          gapReason: 'Not stated in the document (fake)',
+          gapKind: 'not_found' as const,
+        }
       : { field, value, evidence: `${field.replaceAll('_', ' ')}: ${value}`, gapReason: null };
   });
 }
