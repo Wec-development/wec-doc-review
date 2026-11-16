@@ -2,11 +2,89 @@
 
 PDF documents go in, an LLM extracts structured values with verbatim evidence, and a reviewer approves or corrects every value before it is trusted, including when a revised version of a document arrives.
 
-> Status: project skeleton. Sections marked _TODO_ are filled in as the features land.
-
 ## Quick start
 
-Requirements: Node 22 (`nvm use`), pnpm 10 (`corepack enable`), Docker Desktop.
+Requirements: Docker Desktop (or Docker Engine with Compose v2). Nothing else.
+
+1. **Start everything:** `docker compose up` at the repo root. The first build takes a few minutes. It starts Postgres, applies migrations, seeds version 1 of the three sample documents, and then starts the API, the extraction worker and the web UI.
+2. **Configure the LLM:** open <http://localhost:8080>. The onboarding explains the flow; then open **Settings**, choose Claude (Anthropic) or OpenAI, paste an API key, click **Test connection**, keep the pre-selected low-cost model and click **Save settings**. The three seeded documents start extracting on their own.
+   - Until an LLM is saved, they stay `queued` and the app shows "Extraction is paused — configure an LLM in Settings". That's the expected first-run state, not an error.
+   - No key goes into any file. See [LLM settings](#llm-settings).
+3. **What to click first:**
+   - Open **Market report**: `median_household_income` is a gap, with its reason.
+   - Open **Invoice**, approve its values, then **Upload new version** with `fixtures/documents/invoice-001.v2.pdf`. Once it's extracted, exactly **2 values** need review (`due_date`, `total_amount`), each beside its previous value; the other 3 are carried over.
+
+More in [Review UI](#review-ui). Ports: the web UI on **8080**, the API on 3000 (for curl), Postgres on 5433. See [Running with Docker](#running-with-docker), or [Development](#development) for running without containers.
+
+## Running with Docker
+
+```
+db (postgres:16) ──healthy──▶ migrate (one-shot: migrations + seed, exits 0)
+                                 └─completed─▶ api ──healthy──▶ web (nginx :8080, /api → api:3000)
+                                 └─completed─▶ worker
+```
+
+| Service   | Image                                    | Why it exists                                                                                                                                                                                          |
+| --------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `db`      | `postgres:16-alpine`                     | The system of record: documents, values, reviews, the job queue and the encrypted LLM key.                                                                                                             |
+| `migrate` | `doc-review-api:local`                   | Runs migrations and then the idempotent seed, then exits. It's a one-shot job, so API and worker replicas never race to migrate and never start against a half-migrated schema. It runs on every `up`. |
+| `api`     | `doc-review-api:local`                   | Fastify HTTP API (`node dist/index.js`); healthcheck on `GET /health`.                                                                                                                                 |
+| `worker`  | `doc-review-api:local`                   | Extraction worker (`node dist/worker/index.js`). It's a separate service so it can be restarted, killed or scaled on its own.                                                                          |
+| `web`     | `doc-review-web:local` (nginx, non-root) | Serves the built UI and proxies `/api/*` to the API, so the browser makes same-origin requests: no CORS and no build-time API URL.                                                                     |
+
+**Volumes** (kept by `docker compose down`, deleted only by `down -v`):
+
+- `pgdata`: the database.
+- `storage`: uploaded PDFs, mounted into the API (which writes them) and the worker (which reads them).
+- `secrets`: `encryption.key`, mounted into the API and worker only, never into web.
+
+**Ports:** web on `8080`, API on `3000` and Postgres on `5433` are published for the browser, curl and database tools. They can be moved with `WEB_HOST_PORT`, `API_HOST_PORT` and `DB_HOST_PORT`, for example when `pnpm dev` already uses 3000.
+
+**Everyday commands**
+
+```sh
+docker compose up -d --build             # start, or pick up code changes (pnpm docker:up)
+docker compose logs -f worker            # watch extraction (pnpm docker:logs for api + worker)
+docker compose exec db psql -U app -d app  # inspect the database
+docker compose up -d --scale worker=2    # two workers: SKIP LOCKED gives each job to one of them
+docker compose down                      # stop, keep data
+docker compose down -v                   # stop and DELETE all data, uploads and the key (pnpm docker:reset rebuilds)
+```
+
+**Restarts and crashes never lose work** (verified by `scripts/restart-test.sh`, which also runs in CI):
+
+- **`docker compose restart`, or `restart worker`:** the worker gets SIGTERM (`init: true` puts tini in front of node). In-flight jobs get 10 s to finish, otherwise they're released back to the queue. The stop grace period is 30 s, so the release always completes, and the job runs again after the restart.
+- **`docker compose kill worker`:** nothing is released. The job keeps its lease until `JOB_LEASE_SECONDS` (120 s) passes, then any worker reclaims it and completes it once. One value per field is guaranteed by `UNIQUE (version_id, field)`.
+- **Re-running `docker compose up`:** applied migrations are skipped, and the seed finds the fixtures by key and inserts nothing.
+
+**Encryption key.** The stored LLM API key is encrypted with a key that never lives in the database (see [LLM settings](#llm-settings)):
+
+- **Default:** on first start, `encryption.key` is generated in the `secrets` volume with mode 0600. It survives restarts and `down`.
+- **Provide your own:** set `APP_ENCRYPTION_KEY` (32 bytes, base64) in the shell or a root `.env` before `up`.
+- **Same key for both:** the API and worker must use the same key. Both read the same volume, and the file is created atomically, so concurrent first starts can't produce two keys.
+- **Losing it:** `down -v` deletes the key. After that, re-enter the API key in Settings.
+
+**Images**
+
+- **API image:** `node:22-bookworm-slim`, built in stages:
+  - `pnpm fetch` from the lockfile only, with a BuildKit cache;
+  - an offline install, then `shared` and `api` are built;
+  - `pnpm deploy --prod` copies only production dependencies, compiled `dist/`, the migrations and `fixtures/`.
+
+  It runs as the `node` user with `NODE_ENV=production`, contains no `.env`, and has no dev dependencies.
+
+- **Web image:** a Vite build served by `nginxinc/nginx-unprivileged`. nginx adds gzip, long caching for hashed assets, no caching for `index.html`, a single-page-app fallback, an 11 MB body limit (so the API answers oversized uploads with its own JSON error) and security headers (CSP, nosniff, Referrer-Policy, frame-deny).
+
+**Checks:**
+
+- `pnpm docker:smoke` (add `--with-fake-llm` to extract with the test-only fake extractor);
+- `pnpm docker:restart-test` (add `--kill` or `--all`).
+
+Both run as a separate compose project on their own ports and volumes, so they never touch your stack's data.
+
+## Development
+
+Run the apps on your machine with hot reload, with only Postgres in Docker. Requirements: Node 22 (`nvm use`) and pnpm 10 (`corepack enable`).
 
 ```sh
 cp .env.example .env        # no secrets needed: the LLM is configured in the app
@@ -17,11 +95,9 @@ pnpm db:seed                # insert version 1 of the 3 fixture documents (safe 
 pnpm dev                    # API on :3000, extraction worker, web on :5173
 ```
 
-**Then open Settings first** (<http://localhost:5173/settings>): pick Claude (Anthropic) or OpenAI, paste an API key, click **Test connection**, keep the pre-selected low-cost model and **Save** (see [LLM settings](#llm-settings)). Until then the seeded documents stay `queued` and the app shows "Extraction is paused — configure an LLM in Settings". For a demo without any key, set `EXTRACTOR=fake` in `.env`: a deterministic fake extractor then fills in values within a couple of seconds.
-
-Open the review UI at <http://localhost:5173> (walkthrough in [Review UI](#review-ui)). Check the API: <http://localhost:3000/health>
-
-_TODO: once the api and web services are in `docker-compose.yml`, `docker compose up` alone starts everything, runs migrations and seeds version 1 of the fixtures._
+- **First:** open <http://localhost:5173> and save an LLM in **Settings**. The Vite dev server proxies `/api` to the API, exactly as nginx does in Docker.
+- **Demo without a key:** set `EXTRACTOR=fake` in `.env`.
+- **Do not run both stacks at once:** the Docker `api` service also wants port 3000, so stop `pnpm dev` before `docker compose up`, or set `API_HOST_PORT`.
 
 ## Scripts
 
@@ -39,6 +115,10 @@ _TODO: once the api and web services are in `docker-compose.yml`, `docker compos
 | `pnpm --filter @doc-review/api test:live`          | Call the real LLM on `invoice-001.pdf` (needs `LLM_LIVE_TEST_PROVIDER`, `LLM_LIVE_TEST_MODEL`, `LLM_LIVE_TEST_KEY` in your shell; costs a few cents; never in CI)       |
 | `pnpm --filter @doc-review/api llm:models`         | List the models a key can use for extraction and the default Settings would pick (needs `LLM_LIVE_TEST_PROVIDER`, `LLM_LIVE_TEST_KEY`; free; prints IDs only)           |
 | `pnpm db:up` / `down`                              | Start / stop Postgres                                                                                                                                                   |
+| `pnpm docker:up` / `docker:down`                   | Start (building images) / stop the whole Docker stack; data is kept                                                                                                     |
+| `pnpm docker:reset`                                | `down -v` then `up`: deletes all Docker data, uploads and the encryption key, then starts fresh (reseeded)                                                              |
+| `pnpm docker:logs`                                 | Follow the api and worker logs                                                                                                                                          |
+| `pnpm docker:smoke` / `docker:restart-test`        | Docker checks in an isolated project: fresh start, 3 seeded documents, health via nginx / worker restarted or killed mid-extraction                                     |
 | `pnpm db:migrate`                                  | Apply SQL migrations from `apps/api/drizzle/`                                                                                                                           |
 | `pnpm db:seed`                                     | Seed version 1 of each fixture document plus a queued job                                                                                                               |
 | `pnpm --filter @doc-review/api db:generate`        | Generate a new migration after editing `apps/api/src/db/schema.ts`                                                                                                      |
@@ -404,11 +484,11 @@ The result is exactly 2 to re-review. The v2 text also changes the heading to `I
 
 React + Vite in [`apps/web`](apps/web/), styled with CSS Modules and the design tokens in [`styles/tokens.css`](apps/web/src/styles/tokens.css). Fonts (Inter, JetBrains Mono) are self-hosted, so the app makes no external font requests. Server state lives in TanStack Query. Every API call goes through [`api/client.ts`](apps/web/src/api/client.ts), which parses each response with the shared Zod schemas and turns the API's error envelope into a readable message.
 
-**What to click first.** Run `pnpm dev` and open <http://localhost:5173>.
+**What to click first.** Open <http://localhost:8080> (Docker) or <http://localhost:5173> (`pnpm dev`), and save an LLM in Settings first.
 
-**Onboarding.** On the first visit, `/` sends you once to **How it works** (`/welcome`). It explains the four steps in order: upload, extraction with quoted evidence (or a gap with a reason), review (approve or correct), and new versions with carried-over reviews. Each step has a small illustration built from the app's own badges and value cards, using real fixture values. It never blocks the documents list: a "Skip — go to documents" link sits at the top, nothing auto-advances, and the header's **How it works** link reopens it at any time. Whether you've seen it is stored in `localStorage`; if storage is unavailable, there's no redirect. The entrance animations are CSS-only (transform and opacity, under 600 ms each, nothing loops) and are switched off entirely when the OS asks for reduced motion.
+**Onboarding.** On the first visit, `/` sends you once to **How it works** (`/welcome`). It explains the five steps in order: configure an LLM, upload, extraction with quoted evidence (or a gap with a reason), review (approve or correct), and new versions with carried-over reviews. Each step has a small illustration built from the app's own badges and value cards, using real fixture values. It never blocks the documents list: a "Skip — go to documents" link sits at the top, nothing auto-advances, and the header's **How it works** link reopens it at any time. Whether you've seen it is stored in `localStorage`; if storage is unavailable, there's no redirect. The entrance animations are CSS-only (transform and opacity, under 600 ms each, nothing loops) and are switched off entirely when the OS asks for reduced motion.
 
-1. The **Documents** list shows the three seeded documents going _Queued → Extracting → Extracted_ without a refresh. The cards on top total what needs review, gaps, carried-over and approved/corrected values.
+1. The **Documents** list shows the three seeded documents going _Queued → Extracting → Extracted_ without a refresh, once an LLM is saved. The cards on top total what needs review, gaps, carried-over and approved/corrected values.
 2. Open **Market report**. The _Needs review_ cards come first, then the _Gaps_ card for `median_household_income`, which shows its reason. Each value sits beside its **source quote**, and "Show in document text" scrolls to the highlighted passage in the parsed text on the right. **Approve** a value, or **Correct…** it (the value is required, the note optional). A gap can be confirmed or given a value.
 3. Open **Invoice**, approve all five values, then **Upload new version** with `fixtures/documents/invoice-001.v2.pdf`. When it finishes extracting, the banner says **2 values need your review**. `due_date` and `total_amount` each show a **Previously in v1** box (old value struck through, old quote, old review). The other three are listed under **Carried over from v1**, read-only.
 4. Use the version switcher to open **v1**. It's read-only: a banner, the original values and reviews, and no review buttons.

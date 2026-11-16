@@ -41,7 +41,11 @@ function providerFetch() {
   });
 }
 
-async function startApp(fetch: typeof globalThis.fetch, timeoutMs?: number) {
+async function startApp(
+  fetch: typeof globalThis.fetch,
+  timeoutMs?: number,
+  options: { trustProxy?: boolean } = {},
+) {
   const capture = new Writable({
     write(chunk: Buffer, _encoding, done) {
       logLines.push(chunk.toString());
@@ -49,6 +53,7 @@ async function startApp(fetch: typeof globalThis.fetch, timeoutMs?: number) {
     },
   });
   testApp = await createTestApp(testDb.db, {
+    options: { trustProxy: options.trustProxy ?? false },
     listModels: (provider, apiKey) => listAvailableModels(provider, apiKey, { fetch, timeoutMs }),
     logger: { level: 'trace', stream: capture, redact: REDACTED_LOG_PATHS },
   });
@@ -225,6 +230,28 @@ describe('POST /settings/llm/test', () => {
       'RATE_LIMITED',
     );
     expect(calls).toHaveLength(10);
+  });
+});
+
+describe('rate limit behind the nginx proxy (TRUST_PROXY)', () => {
+  it('counts each client separately by X-Forwarded-For, not the proxy as one client', async () => {
+    await testApp.close();
+    const replay = providerFetch();
+    await startApp(replay.fetch, undefined, { trustProxy: true });
+    const testFrom = (ip: string) =>
+      testApp.app.inject({
+        method: 'POST',
+        url: '/settings/llm/test',
+        payload: { provider: 'anthropic', apiKey: ANTHROPIC_KEY },
+        headers: { 'x-forwarded-for': ip },
+        remoteAddress: '172.18.0.5', // nginx
+      });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect((await testFrom('203.0.113.7')).statusCode).toBe(200);
+    }
+    expectEnvelope(await testFrom('203.0.113.7'), 429, 'RATE_LIMITED');
+    expect((await testFrom('198.51.100.20')).statusCode).toBe(200);
   });
 });
 

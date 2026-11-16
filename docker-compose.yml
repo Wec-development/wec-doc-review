@@ -1,14 +1,46 @@
-# Step 1: Postgres only. The api and web services are added once their Dockerfiles exist,
-# so that `docker compose up` at the repo root starts the whole system.
+# One `docker compose up` starts everything: Postgres, a one-shot migrate+seed job, the API,
+# the extraction worker and the web UI (http://localhost:8080). The LLM provider, model and key
+# are not configured here: open Settings in the app. Until then documents stay queued.
+#
+# Host ports can be overridden (WEB_HOST_PORT, API_HOST_PORT, DB_HOST_PORT) when they are taken.
+
+# Shared by migrate, api and worker. ${VAR:-default} values may be overridden from the shell or
+# a root .env; nothing secret is required (APP_ENCRYPTION_KEY is optional, see README).
+x-app-env: &app-env
+  DATABASE_URL: postgres://app:app@db:5432/app
+  STORAGE_DIR: /data/storage
+  SECRETS_DIR: /data/secrets
+  FIXTURES_DIR: /app/fixtures
+  APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
+  LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+  MAX_DOCUMENT_CHARS: ${MAX_DOCUMENT_CHARS:-100000}
+  MAX_UPLOAD_MB: 10
+  WEB_ORIGIN: http://localhost:${WEB_HOST_PORT:-8080}
+  TRUST_PROXY: 'true'
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+  WORKER_POLL_INTERVAL_MS: 1000
+  WORKER_SHUTDOWN_TIMEOUT_MS: 10000
+  JOB_LEASE_SECONDS: ${JOB_LEASE_SECONDS:-120}
+  JOB_MAX_ATTEMPTS: 3
+  JOB_BACKOFF_BASE_MS: 2000
+  # `llm` (the default) reads the LLM from Settings. `fake` is a test-only override used by
+  # scripts/smoke.sh --with-fake-llm and scripts/restart-test.sh; never set it for real use.
+  EXTRACTOR: ${EXTRACTOR:-llm}
+  FAKE_EXTRACTOR_DELAY_MS: ${FAKE_EXTRACTOR_DELAY_MS:-1500}
+
+# The api, worker and migrate services run the same image with different commands.
+x-api-image: &api-image doc-review-api:local
+
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: app
     ports:
-      - '5433:5432'
+      - '${DB_HOST_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,9 +49,89 @@ services:
       timeout: 3s
       retries: 10
 
+  # Applies migrations, then seeds version 1 of the fixtures; both are idempotent, so this runs on
+  # every `up`. A separate one-shot job, so the api and worker (which may be scaled) never race
+  # to migrate, and never start against a half-migrated database.
+  migrate:
+    image: *api-image
+    pull_policy: never
+    command: ['node', 'dist/db/migrate-and-seed.js']
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    image: *api-image
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ['node', 'dist/index.js']
+    init: true
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      API_PORT: 3000
+    ports:
+      - '${API_HOST_PORT:-3000}:3000'
+    volumes:
+      - storage:/data/storage
+      - secrets:/data/secrets
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # The slim image has no curl; Node's fetch does the job.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 15s
+
+  # Claims jobs from Postgres (FOR UPDATE SKIP LOCKED + leases), so it can be restarted, killed
+  # or scaled (`docker compose up --scale worker=2`) without losing or duplicating work.
+  worker:
+    image: *api-image
+    pull_policy: never
+    command: ['node', 'dist/worker/index.js']
+    # tini as PID 1 forwards SIGTERM to node: in-flight jobs finish or are released to the queue.
+    init: true
+    restart: unless-stopped
+    environment: *app-env
+    volumes:
+      - storage:/data/storage
+      - secrets:/data/secrets
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # Longer than WORKER_SHUTDOWN_TIMEOUT_MS (10 s), so a stop never cuts a release short.
+    stop_grace_period: 30s
+
+  web:
+    image: doc-review-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '${WEB_HOST_PORT:-8080}:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
+  # Postgres data: documents, versions, values, reviews, jobs and the encrypted LLM key.
   pgdata:
-  # Holds encryption.key, which encrypts the LLM API key stored in Postgres (the key itself is
-  # never in the database). Step 10 mounts it into the api and worker services at SECRETS_DIR
-  # (e.g. /run/secrets/doc-review), so both use the same key and it survives restarts.
+  # Uploaded PDFs (STORAGE_DIR), shared by the api (writes) and the worker (reads).
+  storage:
+  # encryption.key (SECRETS_DIR): encrypts the LLM key stored in Postgres; never in the database
+  # and never mounted into web. Shared by api and worker so both use the same key.
   secrets:

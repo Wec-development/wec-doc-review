@@ -49,3 +49,26 @@ jobs:
             apps/*/coverage/coverage-summary.json
             packages/*/coverage/coverage-summary.json
           if-no-files-found: warn
+
+  # Builds both images the way a reviewer's `docker compose up` does and runs the smoke test:
+  # migrate exits 0, api/worker/web healthy, 3 seeded documents, extracted by the test-only fake
+  # extractor (no LLM key in CI), and a second `up` reseeds nothing.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build images (BuildKit layer cache in GitHub Actions)
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: docker-compose.yml
+          targets: api,web
+          load: true
+          set: |
+            *.cache-from=type=gha,scope=doc-review
+            *.cache-to=type=gha,mode=max,scope=doc-review
+      - name: Smoke test
+        run: scripts/smoke.sh --no-build --with-fake-llm
+      - name: Restart test (worker killed mid-extraction)
+        run: scripts/restart-test.sh --no-build --kill

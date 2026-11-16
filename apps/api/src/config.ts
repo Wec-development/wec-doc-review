@@ -26,6 +26,12 @@ const envSchema = z.object({
   // Browser origin allowed by CORS (the review UI).
   WEB_ORIGIN: z.url().default('http://localhost:5173'),
   MAX_UPLOAD_MB: z.coerce.number().positive().max(100).default(10),
+  // Behind a reverse proxy (nginx in Docker): take the client IP from X-Forwarded-For, so the
+  // per-client rate limit is not shared by every user. Only enable when a proxy sets it.
+  TRUST_PROXY: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 
   // Worker: how often an idle slot polls, and how many jobs run at once.
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
