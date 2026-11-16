@@ -39,6 +39,12 @@
   justify-content: center;
 }
 
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
 .link,
 .active {
   font-size: 14px;

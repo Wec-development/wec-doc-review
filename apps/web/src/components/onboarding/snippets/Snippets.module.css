@@ -1,0 +1,252 @@
+/* Static illustrations built from the app's own tokens and badge/value styles. Each animates
+   only with `.play` (motion allowed and in view); without it, the final state shows. */
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-3);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2) 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  min-width: 0;
+}
+
+.gapRow {
+  border-color: var(--gap-border);
+}
+
+.pendingRow {
+  border-color: var(--pending-border);
+}
+
+.rowHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.field {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.quote {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.reason {
+  font-size: 12px;
+  color: var(--gap-text);
+}
+
+/* The highlight is a layer behind the text, so it can sweep in with a transform. */
+.mark {
+  position: relative;
+  display: inline-block;
+  padding: 1px 3px;
+  border-radius: 3px;
+  z-index: 0;
+}
+
+.mark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: var(--highlight);
+  transform-origin: left center;
+  z-index: -1;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.fakeButton {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.fakePrimary {
+  border-color: var(--approved-text);
+  background: var(--approved-text);
+  color: var(--surface);
+}
+
+.corrected {
+  font-size: 12px;
+  color: var(--corrected-text);
+}
+
+.struck {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.previous {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px var(--space-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.previousLabel {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.approvedText {
+  color: var(--approved-text);
+}
+
+/* Status pill: three badges in one grid cell; the last one (Extracted) is the final state. */
+.statusStack {
+  display: inline-grid;
+}
+
+.statusStack > * {
+  grid-area: 1 / 1;
+}
+
+.statusPast {
+  opacity: 0;
+}
+
+/* ---- Motion ---- */
+
+.play .appear {
+  animation: fade-up 300ms ease-out 200ms both;
+}
+
+.play .appearLate {
+  animation: fade-up 300ms ease-out 500ms both;
+}
+
+.play .mark::before {
+  animation: sweep 500ms ease-out 300ms both;
+}
+
+.play .statusQueued {
+  animation: fade-out 250ms ease-out 700ms both;
+}
+
+.play .statusExtracting {
+  animation:
+    fade-in 250ms ease-out 700ms both,
+    fade-out 250ms ease-out 1400ms forwards;
+}
+
+.play .statusExtracted {
+  animation: fade-in 250ms ease-out 1400ms both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}

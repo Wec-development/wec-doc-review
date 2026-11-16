@@ -1,0 +1,162 @@
+/* "How it works" page. Animations are opt-in: elements only start hidden when `.animate` is set
+   (motion allowed), so reduced motion and no-JS always show the final state. */
+
+.skipRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-4);
+}
+
+.skip {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hero {
+  max-width: 760px;
+  margin-bottom: var(--space-6);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.lead {
+  margin: 0 0 var(--space-3);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.intro {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+
+.stepHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.number {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.stepTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.stepText {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.snippet {
+  margin-top: auto;
+}
+
+.cta {
+  margin-top: var(--space-6);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ctaText {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-soft);
+  max-width: 640px;
+}
+
+@media (max-width: 900px) {
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- Motion (only with `.animate`; never on the skip link or the call to action) ---- */
+
+.animate.hero,
+.animate.step {
+  opacity: 0;
+}
+
+.animate.hero.inView {
+  animation: rise 400ms ease-out both;
+}
+
+.animate.step.inView {
+  animation: rise 400ms ease-out var(--step-delay, 0ms) both;
+}
+
+.step:nth-child(2) {
+  --step-delay: 100ms;
+}
+
+.step:nth-child(3) {
+  --step-delay: 200ms;
+}
+
+.step:nth-child(4) {
+  --step-delay: 300ms;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
