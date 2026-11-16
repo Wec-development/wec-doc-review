@@ -1,0 +1,87 @@
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.legend {
+  display: flex;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatchPending,
+.swatchNeutral {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.swatchPending {
+  background: var(--highlight);
+}
+
+.swatchNeutral {
+  background: var(--highlight-neutral);
+}
+
+/* Keeps the PDF's line layout; long lines scroll sideways inside the panel. */
+.text {
+  padding: var(--space-4) 18px;
+  overflow-x: auto;
+  max-height: 80vh;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--text-soft);
+  white-space: pre;
+}
+
+.pending,
+.neutral {
+  color: var(--text);
+  border-radius: 2px;
+  scroll-margin: 80px;
+  transition: box-shadow 0.2s;
+}
+
+.pending {
+  background: var(--highlight);
+}
+
+.neutral {
+  background: var(--highlight-neutral);
+}
+
+.emphasised {
+  box-shadow: 0 0 0 3px var(--accent);
+}

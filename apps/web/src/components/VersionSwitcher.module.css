@@ -1,0 +1,38 @@
+.switcher {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  margin: 0;
+  list-style: none;
+  background: var(--switcher-bg);
+  border-radius: 10px;
+}
+
+.option,
+.selected {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  border-radius: 7px;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.option {
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
+.option:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.selected {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}

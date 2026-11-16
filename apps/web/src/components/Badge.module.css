@@ -1,0 +1,57 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.queued,
+.superseded,
+.carried {
+  background: var(--carried-bg);
+  color: var(--carried-text);
+}
+
+.extracting,
+.corrected {
+  background: var(--corrected-bg);
+  color: var(--corrected-text);
+}
+
+.extracted,
+.approved {
+  background: var(--approved-bg);
+  color: var(--approved-text);
+}
+
+.failed,
+.gap {
+  background: var(--gap-bg);
+  color: var(--gap-text);
+}
+
+.pending {
+  background: var(--pending-bg);
+  color: var(--pending-text);
+}

@@ -10,6 +10,7 @@ import {
   type DocumentRow,
   findDocument,
   findLatestVersion,
+  findVersionText,
   insertDocument,
   insertQueuedJob,
   insertVersion,
@@ -40,7 +41,7 @@ export interface PdfUpload {
 
 export interface DocumentDetailView {
   document: DocumentRow & { currentVersionNo: number };
-  version: VersionRow & { baselineVersionNo: number | null };
+  version: VersionRow & { baselineVersionNo: number | null; parsedText: string | null };
   versions: VersionRow[];
   values: ValueView[];
 }
@@ -180,7 +181,11 @@ export async function getDocument(
   versionNo: number | undefined,
 ): Promise<DocumentDetailView> {
   const { document, version, versions } = await resolveVersion(deps, documentId, versionNo);
-  const values = await listValueViews(deps.db, version.id);
+  // Values and the selected version's text are independent reads.
+  const [values, parsedText] = await Promise.all([
+    listValueViews(deps.db, version.id),
+    findVersionText(deps.db, version.id),
+  ]);
   const currentVersionNo = versions.at(-1)?.versionNo ?? version.versionNo;
   return {
     document: { ...document, currentVersionNo },
@@ -188,6 +193,7 @@ export async function getDocument(
       ...version,
       baselineVersionNo:
         versions.find((candidate) => candidate.id === version.baselineVersionId)?.versionNo ?? null,
+      parsedText,
     },
     versions,
     values: orderByFieldDefinitions(document.type, values),

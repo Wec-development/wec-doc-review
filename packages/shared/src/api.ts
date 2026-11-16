@@ -60,6 +60,8 @@ export const documentSummarySchema = z.object({
   title: z.string(),
   currentVersionNo: z.number().int().positive(),
   status: versionStatusSchema,
+  /** The current version's error (e.g. why extraction failed); null otherwise. */
+  error: z.string().nullable(),
   progress: reviewProgressSchema,
   updatedAt: timestampSchema,
 });
@@ -137,6 +139,8 @@ export const documentDetailSchema = z.object({
     error: z.string().nullable(),
     /** The earlier extracted version this one was compared against (null for the first). */
     baselineVersionNo: z.number().int().positive().nullable(),
+    /** This version's text exactly as parsed (evidence offsets point into it); null until extracted. */
+    parsedText: z.string().nullable(),
     createdAt: timestampSchema,
   }),
   versions: z.array(versionSummarySchema),

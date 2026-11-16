@@ -1,0 +1,58 @@
+.attention,
+.calm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 14px 18px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.attention {
+  background: var(--pending-banner-bg);
+  border: 1px solid var(--pending-banner-border);
+  color: var(--pending-banner-text);
+}
+
+.calm {
+  background: var(--approved-bg);
+  border: 1px solid #b9dcc4;
+  color: var(--approved-text);
+}
+
+.message {
+  flex: 1 1 300px;
+  font-size: 14px;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pending {
+  color: var(--pending-text);
+}
+
+.gap {
+  color: var(--gap-text);
+}
+
+.carried {
+  color: var(--carried-text);
+}
+
+.approved {
+  color: var(--approved-text);
+}
+
+.corrected {
+  color: var(--corrected-text);
+}

@@ -1,0 +1,69 @@
+.base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--target);
+  padding: 0 18px;
+  border-radius: var(--radius-control);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.primary {
+  composes: base;
+  border: 0;
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: var(--surface);
+}
+
+.approve {
+  composes: base;
+  border: 0;
+  background: var(--approved-text);
+  color: var(--surface);
+}
+
+.secondary {
+  composes: base;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+/* Smaller table / row actions (still keyboard and touch friendly). */
+.small {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.outline {
+  composes: base;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.outline:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}

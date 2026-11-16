@@ -69,6 +69,7 @@ export function toDocumentDetailDto(detail: DocumentDetailView): DocumentDetail 
       status: version.status,
       error: version.error,
       baselineVersionNo: version.baselineVersionNo,
+      parsedText: version.parsedText,
       createdAt: version.createdAt.toISOString(),
     },
     versions: detail.versions.map(toVersionSummaryDto),
