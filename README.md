@@ -350,30 +350,33 @@ The result is exactly 2 to re-review. The v2 text also changes the heading to `I
 React + Vite in [`apps/web`](apps/web/), styled with CSS Modules and the design tokens in [`styles/tokens.css`](apps/web/src/styles/tokens.css). Fonts (Inter, JetBrains Mono) are self-hosted, so the app makes no external font requests. Server state lives in TanStack Query. Every API call goes through [`api/client.ts`](apps/web/src/api/client.ts), which parses each response with the shared Zod schemas and turns the API's error envelope into a readable message.
 
 **What to click first.** Run `pnpm dev` and open <http://localhost:5173>.
-1. The **Documents** list shows the three seeded documents going *Queued → Extracting → Extracted* without a refresh. The cards on top total what needs review, gaps, carried-over and approved/corrected values.
-2. Open **Market report**. The *Needs review* cards come first, then the *Gaps* card for `median_household_income`, which shows its reason. Each value sits beside its **source quote**, and "Show in document text" scrolls to the highlighted passage in the parsed text on the right. **Approve** a value, or **Correct…** it (the value is required, the note optional). A gap can be confirmed or given a value.
+
+1. The **Documents** list shows the three seeded documents going _Queued → Extracting → Extracted_ without a refresh. The cards on top total what needs review, gaps, carried-over and approved/corrected values.
+2. Open **Market report**. The _Needs review_ cards come first, then the _Gaps_ card for `median_household_income`, which shows its reason. Each value sits beside its **source quote**, and "Show in document text" scrolls to the highlighted passage in the parsed text on the right. **Approve** a value, or **Correct…** it (the value is required, the note optional). A gap can be confirmed or given a value.
 3. Open **Invoice**, approve all five values, then **Upload new version** with `fixtures/documents/invoice-001.v2.pdf`. When it finishes extracting, the banner says **2 values need your review**. `due_date` and `total_amount` each show a **Previously in v1** box (old value struck through, old quote, old review). The other three are listed under **Carried over from v1**, read-only.
 4. Use the version switcher to open **v1**. It's read-only: a banner, the original values and reviews, and no review buttons.
 
 **Screens:**
 
-| Route | Screen |
-| --- | --- |
-| `/` | Documents list: summary cards, a table with status, progress and an action (Review N / View / Retry); the empty state when there are no documents |
-| `/documents/:id` | The current version: *extracting* (polls), *failed* (reason, Retry, upload a new version) or *review* (banner, value cards, gaps, reviewed rows, carried-over rows, highlighted document text) |
-| `/documents/:id?version=N` | An older version, read-only |
-| anything else | Not found, with a link home |
+| Route                      | Screen                                                                                                                                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | Documents list: summary cards, a table with status, progress and an action (Review N / View / Retry); the empty state when there are no documents                                              |
+| `/documents/:id`           | The current version: _extracting_ (polls), _failed_ (reason, Retry, upload a new version) or _review_ (banner, value cards, gaps, reviewed rows, carried-over rows, highlighted document text) |
+| `/documents/:id?version=N` | An older version, read-only                                                                                                                                                                    |
+| anything else              | Not found, with a link home                                                                                                                                                                    |
 
 **Why polling, and when it stops.** Extraction takes seconds and only happens after an upload or a retry. A 3-second poll is simple, works through any proxy, and costs nothing when idle, because the list and the detail page set `refetchInterval` only while a visible document is `queued` or `extracting` and return `false` once everything has settled. Polling also pauses while the browser tab is hidden. WebSockets or SSE would add a connection to manage for no visible gain here.
 
 **Carried-over vs changed values.**
-- A **changed** value goes back to *Needs review*, in an amber-bordered card with a "Previously in v1" box.
+
+- A **changed** value goes back to _Needs review_, in an amber-bordered card with a "Previously in v1" box.
 - A **carried-over** value sits in its own section, labelled "Carried over · approved" or "Carried over · corrected", and has no actions, so carry-over never asks for work twice.
 - Every state is shown as a text label, never by colour alone.
 
 **Correction model.** A correction is saved beside the extracted value, which is never overwritten: rows show the corrected value with "Extracted: …" and the note. **Change review** adds a new review, since reviews are append-only. Review buttons are disabled while a save is in flight, and the UI waits for the server's answer (there are no optimistic updates).
 
 **Accessibility:**
+
 - every action is a real button, link or labelled input, and the whole flow works by keyboard;
 - the upload dialog is a modal with a focus trap: Esc closes it and focus returns to the button that opened it;
 - focus is always visible, and primary actions are at least 44 px;
