@@ -35,6 +35,7 @@ try {
   const expiredLeases = await countExpiredLeases(db);
   logger.info('Worker starting', {
     extractor: config.EXTRACTOR,
+    provider: config.EXTRACTOR === 'llm' ? config.LLM_PROVIDER : undefined,
     model: config.EXTRACTOR === 'llm' ? config.LLM_MODEL : undefined,
     concurrency: config.WORKER_CONCURRENCY,
     leaseSeconds: config.JOB_LEASE_SECONDS,

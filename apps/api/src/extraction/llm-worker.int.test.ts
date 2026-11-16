@@ -13,6 +13,7 @@ import {
   FIXTURES_DIR,
   jsonResponse,
   loadRecording,
+  openAiRecording,
   overrideFields,
   promptOf,
   recordedLlmExtractor,
@@ -371,5 +372,77 @@ describe('evidence belongs to its own version (R5, R7, R8)', () => {
       status: 'failed',
       error: 'Extraction failed: The model declined to extract this document (cyber)',
     });
+  });
+});
+
+describe('LLM extraction through the worker with OpenAI', () => {
+  const INVOICE = readFileSync(`${FIXTURES_DIR}documents/invoice-001.pdf`);
+  let testApp: TestApp;
+
+  beforeEach(async () => {
+    testApp = await createTestApp(testDb.db);
+  });
+  afterEach(() => testApp.close());
+
+  async function extractInvoice(reply: unknown) {
+    const { extractor, calls } = uploadsExtractor(
+      testApp.storageDir,
+      () => jsonResponse(200, reply),
+      {
+        provider: 'openai',
+      },
+    );
+    const upload = await uploadDocument(testApp.app, {
+      type: 'invoice',
+      file: { contents: INVOICE },
+    });
+    const { documentId, versionId } = uploadAcceptedSchema.parse(upload.json());
+    expect(await drain(worker(extractor))).toEqual(['done']);
+    const detail = documentDetailSchema.parse(
+      (await testApp.app.inject(`/documents/${documentId}`)).json(),
+    );
+    return { detail, versionId, calls };
+  }
+
+  it('extracts verified values and stores the prompt, raw completion, usage and model', async () => {
+    const { detail, versionId, calls } = await extractInvoice(
+      openAiRecording('invoice-001', { id: 'chatcmpl_rec_invoice_001' }),
+    );
+
+    expect(calls[0]?.url).toMatch(/api\.openai\.com\/v1\/chat\/completions$/);
+    const text = detail.version.parsedText ?? '';
+    expect(detail.values.filter((v) => v.value !== null)).toHaveLength(5);
+    for (const value of detail.values) {
+      expect(text.slice(value.evidenceStart ?? 0, value.evidenceEnd ?? 0)).toBe(value.evidence);
+    }
+    expect(await jobOf(versionId)).toMatchObject({
+      status: 'done',
+      promptVersion: PROMPT_VERSION,
+      model: 'gpt-4o-mini-2024-07-18',
+      prompt: expect.stringContaining('<document>'),
+      rawResponse: expect.objectContaining({
+        id: 'chatcmpl_rec_invoice_001',
+        object: 'chat.completion',
+      }),
+      usage: { inputTokens: 905, outputTokens: 212 },
+    });
+  });
+
+  it('turns a made-up quote into a gap, exactly as with Anthropic', async () => {
+    const { detail } = await extractInvoice(
+      openAiRecording('invoice-001', {
+        id: 'chatcmpl_rec_invoice_fabricated',
+        editFields: overrideFields({
+          total_amount: { evidence: 'Total Amount Due (incl. tax): $5,230.29' },
+        }),
+      }),
+    );
+
+    expect(detail.values.find((v) => v.field === 'total_amount')).toMatchObject({
+      value: null,
+      gapKind: 'evidence_not_verified',
+      gapReason: GAP_REASONS.evidenceNotFound,
+    });
+    expect(detail.values.filter((v) => v.value !== null)).toHaveLength(4);
   });
 });

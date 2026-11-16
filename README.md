@@ -227,13 +227,24 @@ stored PDF ──pdfjs-dist──▶ raw text ──▶ prompt (field definition
 
 The worker runs this ([`apps/api/src/extraction/`](apps/api/src/extraction/)) with `EXTRACTOR=llm`. That's the default whenever `LLM_API_KEY` is set; it also needs `LLM_MODEL`. Each step is a small pure module with its own tests.
 
+**Two providers: Anthropic and OpenAI.** `LLM_PROVIDER` picks which API gets the key. When it's empty, it's inferred from `LLM_MODEL`: `claude-*` means Anthropic; `gpt-*`, `o1`/`o3`/`o4…` and `chatgpt-*` mean OpenAI. For any other model name the worker refuses to start and asks for `LLM_PROVIDER`, so a mismatch shows up once at startup, not as one failed job per document. Both clients ([`anthropic-client.ts`](apps/api/src/extraction/llm/anthropic-client.ts), [`openai-client.ts`](apps/api/src/extraction/llm/openai-client.ts)) implement the same `LlmClient` interface, with the same guarantees:
+
+- one request per attempt;
+- the same retryable/permanent error mapping;
+- the raw response and usage stored;
+- refusals are permanent.
+
+Everything after the call (verification, normalisation, carry-over) doesn't depend on the provider.
+
+> **"LLM authentication failed — check LLM_API_KEY"** means the provider rejected the key. Most often the key is from a different provider than `LLM_MODEL`/`LLM_PROVIDER` (for example an OpenAI key sent to Anthropic). After editing `.env`, restart `pnpm dev` so the worker reads it.
+
 **Parsed text is stored per version, exactly as parsed.** [pdfjs-dist](https://github.com/mozilla/pdf.js) (Mozilla's PDF.js, with no runtime dependencies) turns the PDF into text, keeping a line break wherever PDF.js reports one. That raw text is stored on `document_versions.parsed_text` and never normalised. Evidence for version N is always verified against version N's own text, even after N+1 exists. The review UI can highlight a passage using the stored offsets. Failures are permanent:
 
 - encrypted or unreadable PDFs;
 - PDFs with no extractable text ("No extractable text — scanned PDFs are not supported", since there's no OCR);
 - documents longer than `MAX_DOCUMENT_CHARS`.
 
-**One structured model call.** The prompt (`PROMPT_VERSION = extract-v1`, stored on the job) gives each field's name, type and a one-line description from `packages/shared`, then the document between `<document>` tags. The request uses **structured outputs** (`output_config.format` with a JSON schema): the reply must be `{ fields: [{ field (enum of the type's fields), value, evidence, not_found_reason }] }`, so the model can't answer in free text. There are no SDK retries (the job queue owns retries), a `LLM_TIMEOUT_MS` timeout, and server-side refusal fallbacks where the model supports them. The instructions ask the model to:
+**One structured model call.** The prompt (`PROMPT_VERSION = extract-v1`, stored on the job) gives each field's name, type and a one-line description from `packages/shared`, then the document between `<document>` tags. The request uses **structured outputs** (Anthropic: `output_config.format` with a JSON schema; OpenAI: `response_format` with a `strict` JSON schema). The reply must be `{ fields: [{ field (enum of the type's fields), value, evidence, not_found_reason }] }`, so the model can't answer in free text. There are no SDK retries (the job queue owns retries), a `LLM_TIMEOUT_MS` timeout, and, on Anthropic models that support them, server-side refusal fallbacks. The instructions ask the model to:
 
 - copy evidence character for character;
 - never paraphrase or join separate lines;
@@ -286,9 +297,11 @@ Every attempt that reaches the model stores `prompt`, `prompt_version`, `model`,
 **Tests never call a model.** Golden tests run the real parser and the real SDK client against recorded model replies in `apps/api/test/recordings/`, through an injected `fetch`. That includes one recording with a fabricated quote, which must become a gap. To call the real provider once:
 
 ```sh
-pnpm --filter @doc-review/api test:live              # invoice-001.pdf; reads LLM_API_KEY/LLM_MODEL from .env
+pnpm --filter @doc-review/api test:live              # invoice-001.pdf; reads LLM_API_KEY/LLM_MODEL/LLM_PROVIDER from .env
 LLM_RECORD=1 pnpm --filter @doc-review/api test:live  # also refreshes the recordings for all three fixtures
 ```
+
+The golden recordings come from Anthropic. The OpenAI tests use `chat.completion` bodies built in code from the same recorded fields (`openAiRecording`). A live run with an OpenAI key and `LLM_RECORD=1` saves real ones under `test/recordings/openai/`.
 
 ## Re-extraction and carry-over
 
@@ -400,7 +413,7 @@ Three layers, each a Vitest project, so every layer can run on its own:
 
 `pnpm test` runs all three. Integration and e2e share one database, so their files run one at a time, and e2e only starts once integration has finished. CI runs `pnpm test:coverage` and uploads each package's `coverage-summary.json` as the `coverage-summary` artifact.
 
-**The LLM is never called.** Replies recorded from the real model live in `apps/api/test/recordings/`, and an injected `fetch` replays them into the real Anthropic SDK client. Variants (a made-up quote, a refusal, a v2 reply that quotes v1) are built from those recordings in code with `buildRecording`, not hand-copied JSON. To refresh the recordings from the real model: `LLM_RECORD=1 pnpm --filter @doc-review/api test:live`.
+**The LLM is never called.** Replies recorded from the real model live in `apps/api/test/recordings/`, and an injected `fetch` replays them into the real Anthropic or OpenAI SDK client. Variants (a made-up quote, a refusal, a v2 reply that quotes v1) are built from those recordings in code with `buildRecording`, not hand-copied JSON. To refresh the recordings from the real model: `LLM_RECORD=1 pnpm --filter @doc-review/api test:live`.
 
 **What the client will test, and where it is proven** (e2e unless noted):
 
