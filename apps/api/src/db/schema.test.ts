@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   connectTestDatabase,
@@ -80,8 +80,25 @@ describe('extraction_jobs', () => {
 
       await expectConstraintViolation(
         tx,
-        (sp) => sp.insert(extractionJobs).values({ versionId, status: 'running' }),
+        (sp) =>
+          sp.insert(extractionJobs).values({
+            versionId,
+            status: 'running',
+            lockedBy: 'worker-a',
+            lockedUntil: sql`now() + interval '1 minute'`,
+          }),
         'extraction_jobs_one_open_per_version',
+      );
+    }));
+
+  it('rejects a running job without a lease holder and expiry', () =>
+    withRollback(testDb.db, async (tx) => {
+      const versionId = await insertDocumentVersion(tx);
+
+      await expectConstraintViolation(
+        tx,
+        (sp) => sp.insert(extractionJobs).values({ versionId, status: 'running' }),
+        'extraction_jobs_running_has_lease',
       );
     }));
 

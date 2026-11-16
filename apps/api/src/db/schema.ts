@@ -90,7 +90,15 @@ export const extractionJobs = pgTable(
       .references(() => documentVersions.id, RESTRICT),
     status: jobStatus('status').notNull().default('queued'),
     attempts: integer('attempts').notNull().default(0),
+    // Lease: the worker in locked_by owns the job until locked_until (database clock). Every
+    // write that finishes an attempt is fenced on (status = 'running', locked_by = worker).
+    lockedBy: text('locked_by'),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    // Backoff: a re-queued job is not claimable before this time.
+    runAfter: timestamp('run_after', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
     lastError: text('last_error'),
     prompt: text('prompt'),
     rawResponse: jsonb('raw_response'),
@@ -101,7 +109,17 @@ export const extractionJobs = pgTable(
     uniqueIndex('extraction_jobs_one_open_per_version')
       .on(table.versionId)
       .where(sql`${table.status} in (${openJobStatusList})`),
-    index('extraction_jobs_claim_idx').on(table.status, table.lockedUntil),
+    // The two halves of the claim query: due queued jobs, and running jobs with expired leases.
+    index('extraction_jobs_claim_queued_idx')
+      .on(table.runAfter, table.createdAt)
+      .where(sql`${table.status} = 'queued'`),
+    index('extraction_jobs_claim_expired_idx')
+      .on(table.lockedUntil)
+      .where(sql`${table.status} = 'running'`),
+    check(
+      'extraction_jobs_running_has_lease',
+      sql`${table.status} <> 'running' or (${table.lockedBy} is not null and ${table.lockedUntil} is not null)`,
+    ),
   ],
 );
 
