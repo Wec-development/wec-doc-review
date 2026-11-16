@@ -33,6 +33,7 @@ x-api-image: &api-image doc-review-api:local
 
 services:
   db:
+    container_name: doc-review-postgres
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -53,6 +54,7 @@ services:
   # every `up`. A separate one-shot job, so the api and worker (which may be scaled) never race
   # to migrate, and never start against a half-migrated database.
   migrate:
+    container_name: doc-review-migrate
     image: *api-image
     pull_policy: never
     command: ['node', 'dist/db/migrate-and-seed.js']
@@ -63,6 +65,7 @@ services:
     restart: 'no'
 
   api:
+
     image: *api-image
     build:
       context: .
@@ -99,6 +102,7 @@ services:
   # Claims jobs from Postgres (FOR UPDATE SKIP LOCKED + leases), so it can be restarted, killed
   # or scaled (`docker compose up --scale worker=2`) without losing or duplicating work.
   worker:
+    container_name: doc-review-worker
     image: *api-image
     pull_policy: never
     command: ['node', 'dist/worker/index.js']
@@ -116,6 +120,7 @@ services:
     stop_grace_period: 30s
 
   web:
+    container_name: doc-review-web
     image: doc-review-web:local
     build:
       context: .
